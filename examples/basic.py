@@ -4,7 +4,16 @@ import jax
 import numpy
 
 # from minilink import DynamicSystem, Euler, Model, StaticSystem
-from minilink.core import Input, Model, Output, Param, SignalLike, State, System
+from minilink.core import (
+    DynamicSystem,
+    Input,
+    Model,
+    Output,
+    Param,
+    SignalLike,
+    State,
+    StaticSystem,
+)
 
 
 def bmm(
@@ -26,34 +35,26 @@ def bmm(
     return jax.numpy.matmul(jnp_matrix, jnp_vector[..., None])[..., 0]
 
 
-# class LTISystem(DynamicSystem):
-class LTISystem(System):
-    def __init__(self, name: Optional[str] = None) -> None:
-        name = name if name is not None else "lti system"
-        # super().__init__(name)
+class LTISystem(DynamicSystem):
+    A = Param()
+    B = Param()
+    C = Param()
+    D = Param()
+    x = State()
+    u = Input()
+    y = Output()
 
-        self.A = Param()
-        self.B = Param()
-        self.C = Param()
-        self.D = Param()
-
-        self.x = State()
-
-        self.u = Input()
-        self.y = Output()
-
-    def compute_output(self):
+    def compute_outputs(self):
         return bmm(self.C, self.x) + bmm(self.D, self.u)
 
     def compute_dynamics(self):
         return bmm(self.A, self.x) + bmm(self.B, self.u)
 
 
-# class ProportionalController(StaticSystem):
-class ProportionalController(System):
+class ProportionalController(StaticSystem):
     def __init__(self, name: Optional[str] = None) -> None:
         name = name if name is not None else "proportional controller"
-        # super().__init__(name)
+        super().__init__(name)
 
         self.kp = Param()
 
@@ -61,7 +62,7 @@ class ProportionalController(System):
         self.observation = Input()
         self.reference = Input()
 
-    def compute_output(self):
+    def compute_outputs(self):
         return bmm(-self.kp, self.observation - self.reference)
 
 

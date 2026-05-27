@@ -1,0 +1,17 @@
+{
+  "languages": {
+    "Python": {
+      "preferred_line_length": 100,
+      "soft_wrap": "preferred_line_length",
+    },
+  },
+  "lsp": {
+    "ruff": {
+      "initialization_options": {
+        "settings": {
+          "lineLength": 100,
+        },
+      },
+    },
+  },
+}

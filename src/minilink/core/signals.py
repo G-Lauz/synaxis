@@ -1,30 +1,11 @@
 from __future__ import annotations
 
+import abc
+import uuid
 from typing import Any, Callable, Generic, Optional, TypeVar, Union, cast, overload
 
 import jax
 import numpy as np
-
-
-class _SignalDescriptor:
-    name: Optional[str] = None
-    owner_name: Optional[str] = None
-
-    def __init__(self, name: Optional[str] = None) -> None:
-        self.name = name
-        self.owner_name = None
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self.name = name
-        self.owner_name = owner.__name__  # TODO: refered by ID instead
-
-    def __get__(self, instance, owner: Optional[type] = None):
-        """
-        Here we could return anything we want if the signal is created at the time of creating the class
-        (not in the init)
-        """
-        return self
-
 
 T = TypeVar("T")
 A = TypeVar("A")
@@ -39,12 +20,18 @@ class NonePlaceholder:
 DUMMY = NonePlaceholder()
 
 
-class Signal(Generic[T], _SignalDescriptor):
+class Signal(Generic[T], abc.ABC):
+    name: str
+    owner_id: Optional[uuid.UUID]
+    owner_cls: Optional[str]
+
     value: T
     dim: int
     lower_bounds: Optional[jax.typing.ArrayLike] = None
     upper_bounds: Optional[jax.typing.ArrayLike] = None
     nominal_value: Optional[T] = None
+
+    _uuid: uuid.UUID
 
     def __init__(
         self,
@@ -54,8 +41,6 @@ class Signal(Generic[T], _SignalDescriptor):
         lower_bounds: Optional[jax.typing.ArrayLike] = None,
         upper_bounds: Optional[jax.typing.ArrayLike] = None,
     ):
-        super().__init__(name=name)
-
         self.nominal_value = nominal_value
         self.value = nominal_value if nominal_value is not None else 0.0
 
@@ -65,20 +50,29 @@ class Signal(Generic[T], _SignalDescriptor):
         self.lower_bounds = lower_bounds
         self.upper_bounds = upper_bounds
 
+        self._uuid = uuid.uuid4()
+
     def __repr__(self) -> str:
-        return (
-            f'Signal(name="{self.name}", owner={self.owner_name}, value={self.value})'
-        )
+        owner_id = None if self.owner_id is None else self.owner_id.hex[:5]
+        return f'Signal(name="{self.name}", id="{self._uuid.hex[:5]}", owner={self.owner_cls}("id={owner_id}"), value={self.value})'
 
-    def get_value(self, *, index: Any = DUMMY) -> T:
-        value = jax.tree.map(
-            lambda x: x, self.value
-        )  # shallow copy to prevent mutation of value
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+        self.owner_cls = owner.__name__  # TODO: refered by ID instead
 
-        if not isinstance(index, NonePlaceholder):
-            value = value[index]
+    def __get__(self, instance, owner: Optional[type] = None):
+        if instance is None:
+            return self
 
-        return value
+        # if signal as been defined as class attribute of a system it should be cloned to avoid
+        # shared signal for multiple instance of the system
+        signal = instance.__dict__.get(self.name)
+        if signal is None:
+            signal = self.clone()
+            signal.bind_owner(name=self.name, owner=owner, owner_id=instance._uuid)
+            instance.__dict__[self.name] = signal
+
+        return signal
 
     def __jax_array__(self) -> jax.Array:
         return jax.numpy.asarray(self.get_value())
@@ -89,10 +83,16 @@ class Signal(Generic[T], _SignalDescriptor):
 
         return np.asarray(self.get_value(), dtype=dtype, copy=copy)
 
+    def get_value(self, *, index: Any = DUMMY) -> T:
+        value = jax.tree.map(lambda x: x, self.value)  # shallow copy to prevent mutation of value
+
+        if not isinstance(index, NonePlaceholder):
+            value = value[index]
+
+        return value
+
     def set_value(self, value: T, *, index: Any = DUMMY) -> None:
-        value = jax.tree.map(
-            lambda x: x, value
-        )  # shallow copy to prevent mutation of value
+        value = jax.tree.map(lambda x: x, value)  # shallow copy to prevent mutation of value
 
         if isinstance(index, NonePlaceholder):
             self.value = value
@@ -105,6 +105,22 @@ class Signal(Generic[T], _SignalDescriptor):
             return
 
         cast(Any, current)[index] = value
+
+    def clone(self):
+        signal_type = type(self)
+        return signal_type(
+            name=self.name,
+            nominal_value=self.nominal_value,
+            lower_bounds=self.lower_bounds,
+            upper_bounds=self.upper_bounds,
+        )
+
+    def bind_owner(
+        self, *, name: str, owner: Optional[type] = None, owner_id: Optional[uuid.UUID] = None
+    ) -> None:
+        self.name = name
+        self.owner_id = owner_id
+        self.owner_cls = owner.__name__ if owner is not None else None
 
     # =================================================================================
     # Proxy methods

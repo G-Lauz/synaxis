@@ -7,7 +7,7 @@ from .signals import (
     SignalLike,
     State,
 )
-from .systems import System
+from .systems import DynamicSystem, StaticSystem, System
 
 __all__ = [
     "Input",
@@ -18,4 +18,6 @@ __all__ = [
     "SignalLike",
     "State",
     "System",
+    "DynamicSystem",
+    "StaticSystem",
 ]
