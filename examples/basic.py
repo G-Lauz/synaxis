@@ -3,16 +3,15 @@ from typing import Optional
 import jax
 import numpy
 
-# from minilink import DynamicSystem, Euler, Model, StaticSystem
 from minilink.core import (
     DynamicSystem,
     Input,
-    Model,
     Output,
     Param,
     SignalLike,
     State,
     StaticSystem,
+    System,
 )
 
 
@@ -40,7 +39,9 @@ class LTISystem(DynamicSystem):
     B = Param()
     C = Param()
     D = Param()
+
     x = State()
+
     u = Input()
     y = Output()
 
@@ -66,14 +67,15 @@ class ProportionalController(StaticSystem):
         return bmm(-self.kp, self.observation - self.reference)
 
 
-class ClosedLoopModel(Model):
+class ClosedLoopModel(System):
+    plant = LTISystem()
+
     def __init__(self, name: Optional[str] = None) -> None:
         name = name if name is not None else "closed-loop model"
         super().__init__(name)
 
         self.reference = Input()
 
-        self.plant = LTISystem()
         self.controller = ProportionalController()
 
         self.connect(self.reference, self.controller.reference)

@@ -7,6 +7,8 @@ from typing import Any, Callable, Generic, Optional, TypeVar, Union, cast, overl
 import jax
 import numpy as np
 
+from .components import ComponentDescriptor
+
 T = TypeVar("T")
 A = TypeVar("A")
 
@@ -20,11 +22,7 @@ class NonePlaceholder:
 DUMMY = NonePlaceholder()
 
 
-class Signal(Generic[T], abc.ABC):
-    name: str
-    owner_id: Optional[uuid.UUID]
-    owner_cls: Optional[str]
-
+class Signal(ComponentDescriptor, Generic[T], abc.ABC):
     value: T
     dim: int
     lower_bounds: Optional[jax.typing.ArrayLike] = None
@@ -41,6 +39,8 @@ class Signal(Generic[T], abc.ABC):
         lower_bounds: Optional[jax.typing.ArrayLike] = None,
         upper_bounds: Optional[jax.typing.ArrayLike] = None,
     ):
+        self._user_defined_name = name
+
         self.nominal_value = nominal_value
         self.value = nominal_value if nominal_value is not None else 0.0
 
@@ -55,24 +55,6 @@ class Signal(Generic[T], abc.ABC):
     def __repr__(self) -> str:
         owner_id = None if self.owner_id is None else self.owner_id.hex[:5]
         return f'Signal(name="{self.name}", id="{self._uuid.hex[:5]}", owner={self.owner_cls}("id={owner_id}"), value={self.value})'
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self.name = name
-        self.owner_cls = owner.__name__  # TODO: refered by ID instead
-
-    def __get__(self, instance, owner: Optional[type] = None):
-        if instance is None:
-            return self
-
-        # if signal as been defined as class attribute of a system it should be cloned to avoid
-        # shared signal for multiple instance of the system
-        signal = instance.__dict__.get(self.name)
-        if signal is None:
-            signal = self.clone()
-            signal.bind_owner(name=self.name, owner=owner, owner_id=instance._uuid)
-            instance.__dict__[self.name] = signal
-
-        return signal
 
     def __jax_array__(self) -> jax.Array:
         return jax.numpy.asarray(self.get_value())
@@ -114,13 +96,6 @@ class Signal(Generic[T], abc.ABC):
             lower_bounds=self.lower_bounds,
             upper_bounds=self.upper_bounds,
         )
-
-    def bind_owner(
-        self, *, name: str, owner: Optional[type] = None, owner_id: Optional[uuid.UUID] = None
-    ) -> None:
-        self.name = name
-        self.owner_id = owner_id
-        self.owner_cls = owner.__name__ if owner is not None else None
 
     # =================================================================================
     # Proxy methods

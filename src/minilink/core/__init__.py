@@ -1,4 +1,3 @@
-from .models import Model
 from .signals import (
     Input,
     Output,
@@ -11,7 +10,6 @@ from .systems import DynamicSystem, StaticSystem, System
 
 __all__ = [
     "Input",
-    "Model",
     "Output",
     "Param",
     "Signal",
