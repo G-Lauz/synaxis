@@ -87,6 +87,10 @@ def main():
     model = ClosedLoopModel()
     compiled_model = model.compile()
 
+    model.pretty_print_identity()
+
+    print(model.plant._compute_dynamics)
+
     # T = 10.0
     # dt = 0.01
     # n_steps = int(T / dt)

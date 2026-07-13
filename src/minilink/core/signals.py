@@ -150,7 +150,7 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
     @overload
     def __getitem__(self, key) -> Any: ...
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> Any:
         return self.get_value(index=key)
 
     __add__ = _operator_on_value("__add__")
