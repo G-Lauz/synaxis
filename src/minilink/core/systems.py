@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import abc
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
 from .components import ComponentDescriptor
 from .equations import Equation, equation
 from .signals import Signal
+
+
+ComponentT = TypeVar("ComponentT", bound=ComponentDescriptor)
 
 
 class System(ComponentDescriptor, abc.ABC):
@@ -114,7 +117,7 @@ class System(ComponentDescriptor, abc.ABC):
         # differential-algebraic equations (DAE) for more details.
         pass
 
-    def get_objects_identity(self):
+    def get_objects_identity(self) -> Tuple[Dict[str, System], Dict[str, Signal], Dict[str, Equation]]:
         blocks = self._get_owned_members(System)
         signals = self._get_owned_members(Signal)
         equations = self._get_owned_members(Equation)
@@ -126,7 +129,7 @@ class System(ComponentDescriptor, abc.ABC):
         return blocks, signals, equations
 
 
-    def _get_owned_members(self, kind: type):
+    def _get_owned_members(self, kind: type[ComponentT]) -> List[ComponentT]:
         return [value for value in self._owned_components.values() if isinstance(value, kind)]
 
     def pretty_print_identity(self, indent: int = 0):
