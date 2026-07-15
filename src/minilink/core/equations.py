@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import uuid
-
 from typing import Any, Callable, Concatenate, Generic, Optional, ParamSpec, Protocol, TypeVar, cast
 
 from .components import ComponentDescriptor
@@ -19,11 +17,8 @@ class EquationProtocol(Protocol[P, R_co]):
 
 
 class Equation(ComponentDescriptor, Generic[OwnerType, P, R]):
-    _uuid: uuid.UUID
-
     def __init__(self, func: Callable[Concatenate[OwnerType, P], R]) -> None:
         self.func = func
-        self._uuid = uuid.uuid4()
 
     def __call__(self, *args, **kwargs):
         return self.func(*args, **kwargs)

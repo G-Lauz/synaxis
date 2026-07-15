@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-import uuid
 from typing import Any, Callable, Generic, Optional, TypeVar, Union, cast, overload
 
 import jax
@@ -29,8 +28,6 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
     upper_bounds: Optional[jax.typing.ArrayLike] = None
     nominal_value: Optional[T] = None
 
-    _uuid: uuid.UUID
-
     def __init__(
         self,
         *,
@@ -49,8 +46,6 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
 
         self.lower_bounds = lower_bounds
         self.upper_bounds = upper_bounds
-
-        self._uuid = uuid.uuid4()
 
     def __repr__(self) -> str:
         owner_id = None if self.owner_id is None else self.owner_id.hex[:5]

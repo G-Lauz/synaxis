@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from .components import ComponentDescriptor
@@ -10,8 +9,6 @@ from .signals import Signal
 
 
 class System(ComponentDescriptor, abc.ABC):
-    _uuid: uuid.UUID
-
     _blocks: Optional[List[System]] = None
     _signals: Optional[List[Signal]] = None
     _connections: Optional[List[Tuple[Signal, Signal]]] = None
@@ -19,7 +16,6 @@ class System(ComponentDescriptor, abc.ABC):
 
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
-        object.__setattr__(instance, "_uuid", uuid.uuid4())
         object.__setattr__(instance, "_owned_components", {})
         object.__setattr__(instance, "name", cls.__name__)
         instance._materialize_class_components()

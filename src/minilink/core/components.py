@@ -10,11 +10,17 @@ _MISSING = object()
 
 
 class ComponentDescriptor(abc.ABC):
+    _uuid: uuid.UUID
     name: str
     _user_defined_name: Optional[str] = None
     _attribute_name: Optional[str] = None
     owner_id: Optional[uuid.UUID] = None
     owner_cls: Optional[str] = None
+
+    def __new__(cls: type[T], *args: Any, **kwargs: Any) -> T:
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_uuid", uuid.uuid4())
+        return cast(T, instance)
 
     def __set_name__(self, owner: type, name: str) -> None:
         self._attribute_name = name
