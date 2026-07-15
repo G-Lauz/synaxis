@@ -19,57 +19,60 @@ class System(ComponentDescriptor, abc.ABC):
 
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
-        instance._uuid = uuid.uuid4()
-        instance.name = cls.__name__
+        object.__setattr__(instance, "_uuid", uuid.uuid4())
+        object.__setattr__(instance, "_owned_components", {})
+        object.__setattr__(instance, "name", cls.__name__)
+        instance._materialize_class_components()
         return instance
-
-    def __init_subclass__(cls, **kwargs) -> None:
-        super().__init_subclass__(**kwargs)
-
-        # scan for decorated equation method
-        for base in cls.__mro__[1:]:
-            for name, template in vars(base).items():
-                if not isinstance(template, Equation):
-                    continue
-
-                override = cls.__dict__.get(name)
-                if override is None or isinstance(override, Equation):
-                    continue
-
-                wrapped = Equation(override)
-                wrapped.__set_name__(cls, name)
-                setattr(cls, name, wrapped)
 
     def __init__(self, name: Optional[str] = None):
         """
         Caution: __init__ could not be called by the user, hence everything here should be optional
         """
         super().__init__()
-        self._owned_components = {}
 
         self._user_defined_name = name
         self.name = name if name is not None else self.name
 
     def __repr__(self) -> str:
-        return f'System(name="{self.name}", id="{self._uuid.hex[:5]}")'
+        owner_id = None if self.owner_id is None else self.owner_id.hex[:5]
+        owner = f'{self.owner_cls}("id={owner_id}")' if self.owner_cls is not None else "None"
+        return f'System(name="{self.name}", id="{self._uuid.hex[:5]}, owner={owner}")'
 
     def __setattr__(self, name: str, value: object) -> None:
-        # call __set_name__ at instantiation to enable descriptor
-        # bind owner if attribute has been defined within the init constructor
         if isinstance(value, ComponentDescriptor):
-            usage_name = value._user_defined_name if value._user_defined_name is not None else name
-            value.bind_owner(name=usage_name, owner=type(self), owner_id=self._uuid)
+            self._bind_owned_component(name, value)
 
         super().__setattr__(name, value)
 
         if isinstance(value, ComponentDescriptor):
             self._register_owned(name, value)
+        else:
+            self._unregister_owned(name)
+
+    def __delattr__(self, name: str) -> None:
+        super().__delattr__(name)
+        self._unregister_owned(name)
+
+    def _bind_owned_component(self, name: str, value: ComponentDescriptor) -> None:
+        usage_name = value._user_defined_name if value._user_defined_name is not None else name
+        value.bind_owner(name=usage_name, owner=type(self), owner_id=self._uuid)
 
     def _register_owned(self, name: str, value: ComponentDescriptor) -> None:
-        if not hasattr(self, "_owned_components"):
-            return
-
         self._owned_components[name] = value
+
+    def _unregister_owned(self, name: str) -> None:
+        self._owned_components.pop(name, None)
+
+    def _materialize_class_components(self) -> None:
+        system_type = type(self)
+        for cls in reversed(system_type.__mro__):
+            for name, template in vars(cls).items():
+                if not isinstance(template, ComponentDescriptor):
+                    continue
+
+                if getattr(system_type, name) is template:
+                    template._materialize(self)
 
     def clone(self):
         system_type = type(self)
@@ -128,34 +131,7 @@ class System(ComponentDescriptor, abc.ABC):
 
 
     def _get_owned_members(self, kind: type):
-        # Ensure class-level descriptors are materialized and registered on this instance.
-        system_type = type(self)
-        for cls in reversed(system_type.__mro__):
-            for name, template in vars(cls).items():
-                if isinstance(template, kind):
-                    value = getattr(self, name)
-                    if isinstance(value, kind):
-                        self._register_owned(name, value)
-
-        members = []
-        seen = set()
-
-        # Discover via explicit registry (independent from descriptor return values).
-        for name, value in self._owned_components.items():
-            if isinstance(value, kind):
-                members.append(value)
-                seen.add(name)
-
-        # Backward-compatible fallback for values present in __dict__ but not registered.
-        for name, value in self.__dict__.items():
-            if name in seen:
-                continue
-
-            if isinstance(value, kind):
-                self._register_owned(name, value)
-                members.append(value)
-
-        return members
+        return [value for value in self._owned_components.values() if isinstance(value, kind)]
 
     def pretty_print_identity(self, indent: int = 0):
         blocks, signals, equations = self.get_objects_identity()

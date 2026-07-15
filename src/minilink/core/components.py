@@ -31,6 +31,9 @@ class ComponentDescriptor(abc.ABC):
         if instance is None:
             return self
 
+        return self._materialize(instance)
+
+    def _materialize(self: T, instance: object) -> T:
         # if obj as been defined as class attribute of a system it should be cloned to avoid
         # shared obj for multiple instance of the system
         instance_dict = cast(Any, instance).__dict__
@@ -38,8 +41,7 @@ class ComponentDescriptor(abc.ABC):
         obj = instance_dict.get(attribute_name, _MISSING)
         if obj is _MISSING:
             obj = self.clone()
-            obj.bind_owner(name=self.name, owner=owner, owner_id=cast(Any, instance)._uuid)
-            instance_dict[attribute_name] = obj
+            setattr(instance, attribute_name, obj)
 
         return cast(T, obj)
 
