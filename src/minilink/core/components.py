@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import abc
+import enum
 import uuid
-from typing import Any, Optional, TypeVar, cast, overload
+from typing import Any, ClassVar, Optional, TypeVar, cast, overload
+
 
 T = TypeVar("T", bound="ComponentDescriptor")
 
+
 _MISSING = object()
+
+
+class ComponentKind(enum.Enum):
+    EQUATION = enum.auto()
+    SIGNAL = enum.auto()
+    SYSTEM = enum.auto()
 
 
 class ComponentDescriptor(abc.ABC):
@@ -16,6 +25,7 @@ class ComponentDescriptor(abc.ABC):
     _attribute_name: Optional[str] = None
     owner_id: Optional[uuid.UUID] = None
     owner_cls: Optional[str] = None
+    kind: ClassVar[ComponentKind]
 
     def __new__(cls: type[T], *args: Any, **kwargs: Any) -> T:
         instance = object.__new__(cls)

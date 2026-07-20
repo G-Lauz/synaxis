@@ -5,6 +5,7 @@ from .signals import (
     Signal,
     SignalLike,
     State,
+    StateDerivative
 )
 from .systems import DynamicSystem, StaticSystem, System
 
@@ -15,6 +16,7 @@ __all__ = [
     "Signal",
     "SignalLike",
     "State",
+    "StateDerivative",
     "System",
     "DynamicSystem",
     "StaticSystem",

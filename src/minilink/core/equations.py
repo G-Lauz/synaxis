@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Concatenate, Generic, Optional, ParamSpec, Protocol, TypeVar, cast
 
-from .components import ComponentDescriptor
+from .components import ComponentDescriptor, ComponentKind
 
 
 OwnerType = TypeVar("OwnerType")
@@ -17,6 +17,8 @@ class EquationProtocol(Protocol[P, R_co]):
 
 
 class Equation(ComponentDescriptor, Generic[OwnerType, P, R]):
+    kind = ComponentKind.EQUATION
+
     def __init__(self, func: Callable[Concatenate[OwnerType, P], R]) -> None:
         self.func = func
 

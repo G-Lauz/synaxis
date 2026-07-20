@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import abc
-from typing import Any, Callable, Generic, Optional, TypeVar, Union, cast, overload
+import contextlib
+import contextvars
+import enum
+from multiprocessing import context
+import uuid
+from typing import Any, Callable, Generic, Iterator, List, Optional, Set, Tuple, TypeVar, Union, cast, overload
 
 import jax
 import numpy as np
 
-from .components import ComponentDescriptor
+from .components import ComponentDescriptor, ComponentKind
 
 T = TypeVar("T")
 A = TypeVar("A")
@@ -21,7 +26,17 @@ class NonePlaceholder:
 DUMMY = NonePlaceholder()
 
 
+class SignalKind(enum.Enum):
+    PARAM = enum.auto()
+    STATE = enum.auto()
+    STATE_DERIVATIVE = enum.auto()
+    INPUT = enum.auto()
+    OUTPUT = enum.auto()
+
+
 class Signal(ComponentDescriptor, Generic[T], abc.ABC):
+    kind = ComponentKind.SIGNAL
+    signal_kind: SignalKind
     value: T
     dim: int
     lower_bounds: Optional[jax.typing.ArrayLike] = None
@@ -50,6 +65,18 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
     def __repr__(self) -> str:
         owner_id = None if self.owner_id is None else self.owner_id.hex[:5]
         return f'Signal(name="{self.name}", id="{self._uuid.hex[:5]}", owner={self.owner_cls}("id={owner_id}"), value={self.value})'
+
+    def __getattribute__(self, name: str) -> Any:
+        # Intercept signal value access to trace reads if within a _trace_signals context
+        if name == "value":
+            signal_reads = _SIGNAL_READS.get()
+            if signal_reads is not None:
+                traced, seen_ids = signal_reads
+                if self._uuid not in seen_ids:
+                    traced.append(self)
+                    seen_ids.add(self._uuid)
+
+        return super().__getattribute__(name)
 
     def __jax_array__(self) -> jax.Array:
         return jax.numpy.asarray(self.get_value())
@@ -189,19 +216,52 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
 
 
 class Param(Signal[T]):
-    pass
+    signal_kind: SignalKind = SignalKind.PARAM
 
 
 class State(Signal[T]):
-    pass
+    signal_kind: SignalKind = SignalKind.STATE
+
+
+class StateDerivative(Signal[T]):
+    signal_kind: SignalKind = SignalKind.STATE_DERIVATIVE
+
+    @classmethod
+    def from_state(cls, state: State[T]) -> StateDerivative[T]:
+        return cls(name=f"d{state.name}")
 
 
 class Input(Signal[T]):
-    pass
+    signal_kind: SignalKind = SignalKind.INPUT
 
 
 class Output(Signal[T]):
-    pass
+    signal_kind: SignalKind = SignalKind.OUTPUT
 
 
+# tracing and evaluating signals
 SignalLike = Union[T, Signal[T]]
+
+
+_SignalReadState = Tuple[List[Signal[Any]], Set[uuid.UUID]]
+_SIGNAL_READS: contextvars.ContextVar[Optional[_SignalReadState]] = contextvars.ContextVar("_SIGNAL_READS", default=None)
+_SIGNAL_USES: contextvars.ContextVar[Optional[dict[uuid.UUID, Any]]] = contextvars.ContextVar("_SIGNAL_USES", default=None)
+
+
+@contextlib.contextmanager
+def _trace_signals() -> Iterator[List[Signal[Any]]]:
+    traced: List[Signal[Any]] = []
+    token = _SIGNAL_READS.set((traced, set()))
+    try:
+        yield traced
+    finally:
+        _SIGNAL_READS.reset(token)
+
+
+@contextlib.contextmanager
+def _evaluate_signals(values: dict[uuid.UUID, Any]) -> Iterator[None]:
+    token = _SIGNAL_USES.set(values)
+    try:
+        yield
+    finally:
+        _SIGNAL_USES.reset(token)

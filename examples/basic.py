@@ -10,9 +10,12 @@ from minilink.core import (
     Param,
     SignalLike,
     State,
+    StateDerivative,
     StaticSystem,
     System,
 )
+
+from minilink.diagram import to_dot
 
 
 def bmm(
@@ -41,12 +44,13 @@ class LTISystem(DynamicSystem):
     D = Param()
 
     x = State()
+    dx = StateDerivative()
 
     u = Input()
     y = Output()
 
     def compute_outputs(self):
-        return bmm(self.C, self.x) + bmm(self.D, self.u)
+        return bmm(self.C, self.x)# + bmm(self.D, self.u)
 
     def compute_dynamics(self):
         return bmm(self.A, self.x) + bmm(self.B, self.u)
@@ -87,9 +91,9 @@ def main():
     model = ClosedLoopModel()
     compiled_model = model.compile()
 
-    model.pretty_print_identity()
-
-    print(model.plant._compute_dynamics)
+    dot_text = to_dot(compiled_model, explicit_connection=False)
+    with open("closed_loop_model.dot", "w") as f:
+        f.write(dot_text)
 
     # T = 10.0
     # dt = 0.01
