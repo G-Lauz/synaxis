@@ -248,23 +248,23 @@ class System(ComponentDescriptor, abc.ABC):
                     port=port,
                 )
 
-            for connection in raw_connections:
-                operation = OperationNode(
-                    id=connection._uuid,
-                    path=f"{self.describe_path(path_by_id[connection.src._uuid])} -> {self.describe_path(path_by_id[connection.tgt._uuid])}",
-                    kind=OperationKind.CONNECTION,
-                    fn=lambda x: (x[0],),  # identity function
-                )
-                graph.add_edge(
-                    source=signal_nodes[connection.src._uuid],
-                    target=operation,
-                    port=0,
-                )
-                graph.add_edge(
-                    source=operation,
-                    target=signal_nodes[connection.tgt._uuid],
-                    port=0,
-                )
+        for connection in raw_connections:
+            operation = OperationNode(
+                id=connection._uuid,
+                path=f"{self.describe_path(path_by_id[connection.src._uuid])} -> {self.describe_path(path_by_id[connection.tgt._uuid])}",
+                kind=OperationKind.CONNECTION,
+                fn=lambda x: (x[0],),  # identity function
+            )
+            graph.add_edge(
+                source=signal_nodes[connection.src._uuid],
+                target=operation,
+                port=0,
+            )
+            graph.add_edge(
+                source=operation,
+                target=signal_nodes[connection.tgt._uuid],
+                port=0,
+            )
 
         # 7. Check for algebraic loops (cycles) in the graph
         # For now we raise an error, but implicit/residual solver could be used in future instead
