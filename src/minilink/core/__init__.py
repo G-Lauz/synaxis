@@ -7,7 +7,7 @@ from .signals import (
     State,
     StateDerivative
 )
-from .systems import DynamicSystem, StaticSystem, System
+from .systems import CompiledSystem, DynamicSystem, StaticSystem, System
 
 __all__ = [
     "Input",
@@ -20,4 +20,5 @@ __all__ = [
     "System",
     "DynamicSystem",
     "StaticSystem",
+    "CompiledSystem"
 ]

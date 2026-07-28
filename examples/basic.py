@@ -1,6 +1,7 @@
 from typing import Optional
 
 import jax
+import matplotlib.pyplot as plt
 import numpy
 
 from minilink.core import (
@@ -16,6 +17,7 @@ from minilink.core import (
 )
 
 from minilink.diagram import to_dot
+from minilink.solver import Euler
 
 
 def bmm(
@@ -91,52 +93,92 @@ def main():
     model = ClosedLoopModel()
     compiled_model = model.compile()
 
-    dot_text = to_dot(compiled_model, explicit_connection=False)
-    with open("closed_loop_model.dot", "w") as f:
-        f.write(dot_text)
+    # dot_text = to_dot(compiled_model.graph, explicit_connection=False)
+    # with open("closed_loop_model.dot", "w") as f:
+    #     f.write(dot_text)
 
-    # T = 10.0
-    # dt = 0.01
-    # n_steps = int(T / dt)
-    # time = numpy.linspace(0, T, n_steps)
+    T = 10.0
+    dt = 0.01
+    n_steps = int(T / dt)
+    time = numpy.linspace(0, T, n_steps + 1)
 
-    # solver = Euler(dt=dt)
+    solver = Euler(dt=dt)
 
-    # initial_states = model.states()
-    # params = model.params()
-    # inputs = model.inputs()
+    initial_states = (jax.numpy.array([0.0]),)
+    params = (
+        jax.numpy.array([-1.0]),  # A
+        jax.numpy.array([1.0]),  # B
+        jax.numpy.array([1.0]),  # C
+        jax.numpy.array([0.0]),  # D
+        jax.numpy.array([2.0]),  # kp
+    )
+    inputs = (
+        jax.numpy.array([5.0]),  # reference
+    )
 
-    # finale_state, trajectory = solver.rollout(
-    #     compiled_model, initial_states, params, inputs, n_steps
-    # )
+    finale_state, trajectory = solver.rollout(
+        compiled_model, initial_states, inputs, params, n_steps=n_steps
+    )
 
-    # # jitted
-    # jitted_rolout = jax.jit(
-    #     lambda states, inputs, params: solver.rollout(
-    #         compiled_model, initial_states, params, inputs, n_steps
-    #     )
-    # )
-    # jit_final_state, jit_trajectory = jitted_rolout(initial_states, inputs, params)
+    print("Final state:", finale_state)
+    print("Trajectory shape:", trajectory[0].shape)
 
-    # # vmap
-    # def rollout_given_gain(kp):
-    #     _, traj = solver.rollout(compiled_model, initial_states, kp, inputs, n_steps)
-    #     return traj
+    # jitted
+    jitted_rolout = jax.jit(
+        lambda states, inputs, params: solver.rollout(
+            compiled_model, states, inputs, params, n_steps=n_steps
+        )
+    )
+    jit_final_state, jit_trajectory = jitted_rolout(initial_states, inputs, params)
 
-    # vmapped_rollout = jax.jit(jax.vmap(rollout_given_gain))
+    # vmap
+    def rollout_given_gain(kp):
+        params = (
+            jax.numpy.array([-1.0]),  # A
+            jax.numpy.array([1.0]),  # B
+            jax.numpy.array([1.0]),  # C
+            jax.numpy.array([0.0]),  # D
+            jax.numpy.array([kp,]),  # kp
+        )
+        _, traj = solver.rollout(compiled_model, initial_states, inputs, params, n_steps=n_steps)
+        return traj
 
-    # gains = jax.numpy.array([0.5, 1.0, 2.0, 5.0])
-    # vmap_trajectories = vmapped_rollout(gains)
+    vmapped_rollout = jax.jit(jax.vmap(rollout_given_gain))
 
-    # # grad
-    # def loss(kp):
-    #     end_states, _ = solver.rollout(
-    #         compiled_model, initial_states, kp, inputs, n_steps
-    #     )
-    #     return jax.numpy.sum((end_states.plant.x - model.reference) ** 2)
+    gains = jax.numpy.array([0.5, 1.0, 2.0, 5.0])
+    vmap_trajectories = vmapped_rollout(gains)
 
-    # grad_loss = jax.jit(jax.grad(loss))
-    # gain_grad = grad_loss(1.0)
+    print(len(vmap_trajectories), vmap_trajectories[0].shape)
+
+    # grad
+    def loss(kp):
+        params = (
+            jax.numpy.array([-1.0]),  # A
+            jax.numpy.array([1.0]),  # B
+            jax.numpy.array([1.0]),  # C
+            jax.numpy.array([0.0]),  # D
+            jax.numpy.array([kp,]),  # kp
+        )
+        end_states, _ = solver.rollout(
+            compiled_model, initial_states, inputs, params, n_steps=n_steps
+        )
+        return jax.numpy.sum((end_states[0] - inputs[0]) ** 2)
+
+    grad_loss = jax.jit(jax.vmap(jax.grad(loss)))
+    gains_grads = grad_loss(gains)
+
+    print(f"Gradients wrt. gains: {gains_grads}")
+
+    plt.figure()
+    plt.plot(time, trajectory[0], label="plant.x")
+    for gain, traj in zip(gains, vmap_trajectories[0]):
+        plt.plot(time, traj, label=f"kp={gain}")
+    plt.xlabel("Time [s]")
+    plt.ylabel("State value")
+    plt.title("Closed-loop system state trajectory")
+    plt.legend()
+    plt.grid()
+    plt.show()
 
 
 if __name__ == "__main__":

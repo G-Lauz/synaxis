@@ -75,6 +75,10 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
                     traced.append(self)
                     seen_ids.add(self._uuid)
 
+            signal_values = _SIGNAL_USES.get()
+            if signal_values is not None:
+                return signal_values[self._uuid]
+
         return super().__getattribute__(name)
 
     def __jax_array__(self) -> jax.Array:

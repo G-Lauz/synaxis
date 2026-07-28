@@ -96,16 +96,19 @@ class BipartiteComputationGraph:
         if self._topological_order is not None:
             return self._topological_order
 
+        # copy the input degrees to avoid modifying the original graph
+        input_degrees = self.input_degrees.copy()
+
         topological_order: List[Node] = []
-        queue = [node for node in self.successors if self.input_degrees.get(node, 0) == 0]
+        queue = [node for node in self.successors if input_degrees.get(node, 0) == 0]
 
         while queue:
             node = queue.pop(0)
             topological_order.append(node)
 
             for neighbor in self.successors[node]:
-                self.input_degrees[neighbor] -= 1
-                if self.input_degrees[neighbor] == 0:
+                input_degrees[neighbor] -= 1
+                if input_degrees[neighbor] == 0:
                     queue.append(neighbor)
 
         self._topological_order = topological_order

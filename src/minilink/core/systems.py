@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
 
 from .components import ComponentDescriptor, ComponentKind
 from .equations import Equation, equation
-from .signals import Signal, Output, State, StateDerivative, _trace_signals, _evaluate_signals
+from .signals import Signal, Output, State, SignalKind, StateDerivative, _trace_signals, _evaluate_signals
 from .computation_graph import BipartiteComputationGraph, OperationNode, SignalNode, OperationKind
 
 
@@ -115,7 +115,7 @@ class System(ComponentDescriptor, abc.ABC):
     def connect(self, source: Signal, target: Signal) -> None:
         self._connections.append(Connection(src=source, tgt=target))
 
-    def compile(self):
+    def compile(self, *, allow_algebraic_loops: bool = False) -> CompiledSystem:
         # 1. get global identity (a mapping of [id, obj] for all obj of interest including equation)
         # 2. get system child ownership (optional?)
         # 3. get signal (input, output, state, param)
@@ -268,7 +268,7 @@ class System(ComponentDescriptor, abc.ABC):
 
         # 7. Check for algebraic loops (cycles) in the graph
         # For now we raise an error, but implicit/residual solver could be used in future instead
-        if graph.has_algebraic_loop():
+        if graph.has_algebraic_loop() and not allow_algebraic_loops:
             remaining_nodes = set(graph.successors) - set(graph.topological_order())
 
             # remove connection nodes from the remaining nodes to focus on the actual components involved in the loop
@@ -279,7 +279,7 @@ class System(ComponentDescriptor, abc.ABC):
                 f"algebraic loop detected in the system. The following components are part of the loop: {remaining_paths}"
             )
 
-        return graph
+        return CompiledSystem(graph)
 
 
     def _result_signals(self, value):
@@ -355,6 +355,73 @@ class System(ComponentDescriptor, abc.ABC):
         print(f"{'  ' * indent}-----------------------------------------------------------------\n")
 
 
+class CompiledSystem:
+    def __init__(self, graph: BipartiteComputationGraph):
+        self.graph = graph
+
+    # def __getitem__(self, key: uuid.UUID) -> ComponentDescriptor:
+
+    def evaluate(self, states, inputs, params):
+        """Evaluate one graph pass.
+
+        Runtime tuples map to unconnected signals in graph registration order.
+        Outputs and state derivatives are returned in that same order.
+        """
+        signal_nodes = tuple(
+            node for node in self.graph.successors if isinstance(node, SignalNode)
+        )
+        values = {}
+
+        runtime_values = (
+            (SignalKind.STATE, states, "states"),
+            (SignalKind.INPUT, inputs, "inputs"),
+            (SignalKind.PARAM, params, "params"),
+        )
+        for kind, supplied_values, name in runtime_values:
+            nodes = tuple(
+                node
+                for node in signal_nodes
+                if node.kind == kind and not self.graph.predecessors[node]
+            )
+            if not isinstance(supplied_values, tuple):
+                raise TypeError(f"{name} must be a tuple")
+            if len(supplied_values) != len(nodes):
+                raise ValueError(f"expected {len(nodes)} {name}, got {len(supplied_values)}")
+            values.update(zip(nodes, supplied_values))
+
+        for node in self.graph.topological_order():
+            if not isinstance(node, OperationNode):
+                continue
+
+            arguments = [None] * len(self.graph.predecessors[node])
+            for predecessor, edge in self.graph.predecessors[node].items():
+                arguments[edge.port] = values[predecessor]
+
+            results = node.fn(tuple(arguments))
+            if not isinstance(results, tuple):
+                raise TypeError(f"operation {node.path} must return a tuple")
+            if len(results) != len(self.graph.successors[node]):
+                raise ValueError(
+                    f"operation {node.path} returned {len(results)} values; "
+                    f"expected {len(self.graph.successors[node])}"
+                )
+
+            for successor, edge in self.graph.successors[node].items():
+                values[successor] = results[edge.port]
+
+        outputs = tuple(
+            values[node]
+            for node in signal_nodes
+            if node.kind == SignalKind.OUTPUT
+        )
+        derivatives = tuple(
+            values[node]
+            for node in signal_nodes
+            if node.kind == SignalKind.STATE_DERIVATIVE
+        )
+        return outputs, derivatives
+
+
 class StaticSystem(System):
     @equation
     def _compute_outputs(self):
@@ -401,14 +468,29 @@ class DynamicSystem(System):
 def make_equation_fn(
     equation: Equation, owner_obj: System, input_ids: Tuple[uuid.UUID, ...], output_count: int
 ) ->  Callable[[Tuple[Any, ...]], Tuple[Any, ...]]:
+    def resolve_signals(value):
+        if isinstance(value, Signal):
+            return value.get_value()
+        if isinstance(value, list):
+            return [resolve_signals(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(resolve_signals(item) for item in value)
+        if isinstance(value, dict):
+            return {key: resolve_signals(item) for key, item in value.items()}
+        return value
+
     def fn(values):
         values_by_signal_id = dict(zip(input_ids, values))
 
         with _evaluate_signals(values_by_signal_id):
-            result = equation.func(owner_obj)
+            result = resolve_signals(equation.func(owner_obj))
 
+        if output_count == 0:
+            return ()
         if output_count == 1:
             return (result,)
+        if isinstance(result, dict):
+            return tuple(result.values())
         return tuple(result)
 
     return fn
