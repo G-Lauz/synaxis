@@ -3,13 +3,12 @@ from __future__ import annotations
 import abc
 import dataclasses
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
+from typing import Any, Callable, TypeVar
 
 from .components import ComponentDescriptor, ComponentKind
+from .computation_graph import BipartiteComputationGraph, OperationKind, OperationNode, SignalNode
 from .equations import Equation, equation
-from .signals import Signal, Output, State, SignalKind, StateDerivative, _trace_signals, _evaluate_signals
-from .computation_graph import BipartiteComputationGraph, OperationNode, SignalNode, OperationKind
-
+from .signals import Output, Signal, SignalKind, StateDerivative, _evaluate_signals, _trace_signals
 
 ComponentT = TypeVar("ComponentT", bound=ComponentDescriptor)
 
@@ -23,10 +22,10 @@ class Connection:
 
 class System(ComponentDescriptor, abc.ABC):
     kind = ComponentKind.SYSTEM
-    _blocks: Dict[uuid.UUID, System]
-    _signals: Dict[uuid.UUID, Signal]
-    _equations: Dict[uuid.UUID, Equation]
-    _connections: List[Connection]
+    _blocks: dict[uuid.UUID, System]
+    _signals: dict[uuid.UUID, Signal]
+    _equations: dict[uuid.UUID, Equation]
+    _connections: list[Connection]
 
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
@@ -38,7 +37,7 @@ class System(ComponentDescriptor, abc.ABC):
         instance._materialize_class_components()
         return instance
 
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         """
         Caution: __init__ could not be called by the user, hence everything here should be optional
         """
@@ -81,7 +80,7 @@ class System(ComponentDescriptor, abc.ABC):
         elif isinstance(value, Equation):
             self._equations[component_id] = value
         else:
-            raise ValueError(f"unknown component type {type(value)} for {value.name}")
+            raise TypeError(f"unknown component type {type(value)} for {value.name}")
 
     def _unregister_owned(self, name: str) -> None:
         component = getattr(self, name, None)
@@ -96,7 +95,7 @@ class System(ComponentDescriptor, abc.ABC):
         elif isinstance(component, Equation):
             self._equations.pop(component_id, None)
         else:
-            raise ValueError(f"unknown component type {type(component)} for {component.name}")
+            raise TypeError(f"unknown component type {type(component)} for {component.name}")
 
     def _materialize_class_components(self) -> None:
         system_type = type(self)
@@ -157,7 +156,7 @@ class System(ComponentDescriptor, abc.ABC):
         ) = self._parse_descendants()
 
         # 5. get equations hyperedges
-        equation_edges: List[Tuple[uuid.UUID, List[uuid.UUID], List[uuid.UUID]]] = []
+        equation_edges: list[tuple[uuid.UUID, list[uuid.UUID], list[uuid.UUID]]] = []
         for eq in classified_descendants.get(ComponentKind.EQUATION, {}).values():
             # TODO: documentation: equations are expected to be pure functions
             # interdiction:
@@ -167,9 +166,7 @@ class System(ComponentDescriptor, abc.ABC):
 
             owner_obj = descendants.get(eq.owner_id, None)
             if owner_obj is None:
-                raise ValueError(
-                    f"equation {self.describe_path(path_by_id[eq._uuid])} (id={eq._uuid}) has no owner"
-                )
+                raise ValueError(f"equation {self.describe_path(path_by_id[eq._uuid])} (id={eq._uuid}) has no owner")
 
             # trace the equation to find inputs
             try:
@@ -185,7 +182,7 @@ class System(ComponentDescriptor, abc.ABC):
                     f"failed to trace equation {self.describe_path(path_by_id[eq._uuid])} (id={eq._uuid})"
                 ) from exception
 
-            equation_inputs: List[uuid.UUID] = [signal._uuid for signal in traced_signals]
+            equation_inputs: list[uuid.UUID] = [signal._uuid for signal in traced_signals]
 
             # TODO (NEED IMPROVEMENT): all this constructs make the whole system couple to a state space model. This may limit the generality of the framework, preventing someone to implement its own equation and specify where it should be in the system computation graph.
 
@@ -193,12 +190,14 @@ class System(ComponentDescriptor, abc.ABC):
 
             # parse output and state signals from the component to define equation outputs
             # although the state equations doesn't return a state but rather the state derivative, we still consider the state as an output since it shares the same metadata
-            equation_outputs: List[uuid.UUID] = []
+            equation_outputs: list[uuid.UUID] = []
 
             if eq.name == "_compute_outputs":
                 equation_outputs = [id for id, output in owner_obj._signals.items() if isinstance(output, Output)]
             elif eq.name == "_compute_dynamics":
-                equation_outputs = [id for id, state in owner_obj._signals.items() if isinstance(state, StateDerivative)]
+                equation_outputs = [
+                    id for id, state in owner_obj._signals.items() if isinstance(state, StateDerivative)
+                ]
             else:
                 raise ValueError(
                     f"unsuported equation at {self.describe_path(path_by_id[eq._uuid])} (id={eq._uuid[5:]}); "
@@ -212,13 +211,14 @@ class System(ComponentDescriptor, abc.ABC):
         # directed graph: inputs -> equation -> outputs
         graph = BipartiteComputationGraph()
 
-        signal_nodes: Dict[uuid.UUID, SignalNode] = {
+        signal_nodes: dict[uuid.UUID, SignalNode] = {
             signal_id: SignalNode(
                 id=signal_id,
                 path=self.describe_path(path_by_id[signal_id]),
                 kind=signal.signal_kind,
                 value=signal.get_value(),
-            ) for signal_id, signal in classified_descendants.get(ComponentKind.SIGNAL, {}).items()
+            )
+            for signal_id, signal in classified_descendants.get(ComponentKind.SIGNAL, {}).items()
         }
 
         for signal in signal_nodes.values():
@@ -273,7 +273,12 @@ class System(ComponentDescriptor, abc.ABC):
             remaining_nodes = set(graph.successors) - set(graph.topological_order())
 
             # remove connection nodes from the remaining nodes to focus on the actual components involved in the loop
-            remaining_nodes = [node for node in remaining_nodes if isinstance(node, SignalNode) or (isinstance(node, OperationNode) and node.kind != OperationKind.CONNECTION)]
+            remaining_nodes = [
+                node
+                for node in remaining_nodes
+                if isinstance(node, SignalNode)
+                or (isinstance(node, OperationNode) and node.kind != OperationKind.CONNECTION)
+            ]
 
             remaining_paths = [node.path for node in remaining_nodes]
             raise ValueError(
@@ -292,17 +297,17 @@ class System(ComponentDescriptor, abc.ABC):
             for item in value.values():
                 yield from self._result_signals(item)
 
-    def describe_path(self, path: Tuple[str, ...]) -> str:
+    def describe_path(self, path: tuple[str, ...]) -> str:
         return ".".join(path) if path else "root"
 
     def _parse_descendants(self) -> Any:
-        visited: Set[uuid.UUID] = set()
-        descendants: Dict[uuid.UUID, ComponentDescriptor] = {}
-        classified_descendants: Dict[ComponentKind, Dict[uuid.UUID, ComponentDescriptor]] = {}
-        path_by_id: Dict[uuid.UUID, Tuple[str, ...]] = {}
-        raw_connections: List[Connection] = []
+        visited: set[uuid.UUID] = set()
+        descendants: dict[uuid.UUID, ComponentDescriptor] = {}
+        classified_descendants: dict[ComponentKind, dict[uuid.UUID, ComponentDescriptor]] = {}
+        path_by_id: dict[uuid.UUID, tuple[str, ...]] = {}
+        raw_connections: list[Connection] = []
 
-        def _visit(system: System, path: Tuple[str, ...] = ()) -> None:
+        def _visit(system: System, path: tuple[str, ...] = ()) -> None:
             if system._uuid in visited:
                 raise ValueError(f"circular ownership detected for component {system.name} (id={system._uuid})")
 
@@ -340,7 +345,10 @@ class System(ComponentDescriptor, abc.ABC):
     def pretty_print_identity(self, indent: int = 0):
         signals_names = [signal.name for signal in self._signals.values()]
         equations_names = [equation.name for equation in self._equations.values()]
-        connections_str = [f"{connexion.src.owner_cls}({connexion.src.name}) -> {connexion.tgt.owner_cls}({connexion.tgt.name})" for connexion in self._connections]
+        connections_str = [
+            f"{connexion.src.owner_cls}({connexion.src.name}) -> {connexion.tgt.owner_cls}({connexion.tgt.name})"
+            for connexion in self._connections
+        ]
 
         print(f"{'  ' * indent}System: {self.name}")
         print(f"{'  ' * indent}-----------------------------------------------------------------")
@@ -359,14 +367,13 @@ class CompiledSystem:
     def __init__(self, graph: BipartiteComputationGraph):
         self.graph = graph
 
-        self._id_nodes_map: Dict[uuid.UUID, SignalNode] = {
+        self._id_nodes_map: dict[uuid.UUID, SignalNode] = {
             node.id: node for node in self.graph.successors if isinstance(node, SignalNode)
         }
 
         input_nodes = self.graph.get_unconnected_nodes()
-        self._initial_values: Dict[uuid.UUID, Any] = {
-            node.id: node.value
-            for node in input_nodes if isinstance(node, SignalNode)
+        self._initial_values: dict[uuid.UUID, Any] = {
+            node.id: node.value for node in input_nodes if isinstance(node, SignalNode)
         }
 
     # def __getitem__(self, key: uuid.UUID) -> ComponentDescriptor:
@@ -375,9 +382,7 @@ class CompiledSystem:
         node = self._id_nodes_map.get(signal._uuid, None)
 
         if node is None:
-            raise KeyError(
-                f"signal {signal.name} (id={signal._uuid.hex[:5]}) not found in compiled system"
-            )
+            raise KeyError(f"signal {signal.name} (id={signal._uuid.hex[:5]}) not found in compiled system")
 
         # only allow setting values for unconnected signals (i.e., those without predecessors in the graph)
         if self.graph.predecessors[node]:
@@ -387,21 +392,16 @@ class CompiledSystem:
 
         self._initial_values[signal._uuid] = value
 
-    def initial_values(self) -> Tuple[Tuple[Any, ...], Tuple[Any, ...], Tuple[Any, ...]]:
+    # TODO: proper type hinting
+    def initial_values(self) -> tuple[tuple[Any, ...], tuple[Any, ...], tuple[Any, ...]]:
         states = tuple(
-            value
-            for id, value in self._initial_values.items()
-            if self._id_nodes_map[id].kind == SignalKind.STATE
+            value for id, value in self._initial_values.items() if self._id_nodes_map[id].kind == SignalKind.STATE
         )
         inputs = tuple(
-            value
-            for id, value in self._initial_values.items()
-            if self._id_nodes_map[id].kind == SignalKind.INPUT
+            value for id, value in self._initial_values.items() if self._id_nodes_map[id].kind == SignalKind.INPUT
         )
         params = tuple(
-            value
-            for id, value in self._initial_values.items()
-            if self._id_nodes_map[id].kind == SignalKind.PARAM
+            value for id, value in self._initial_values.items() if self._id_nodes_map[id].kind == SignalKind.PARAM
         )
         return states, inputs, params
 
@@ -411,9 +411,7 @@ class CompiledSystem:
         Runtime tuples map to unconnected signals in graph registration order.
         Outputs and state derivatives are returned in that same order.
         """
-        signal_nodes = tuple(
-            node for node in self.graph.successors if isinstance(node, SignalNode)
-        )
+        signal_nodes = tuple(node for node in self.graph.successors if isinstance(node, SignalNode))
         values = {}
 
         runtime_values = (
@@ -422,11 +420,7 @@ class CompiledSystem:
             (SignalKind.PARAM, params, "params"),
         )
         for kind, supplied_values, name in runtime_values:
-            nodes = tuple(
-                node
-                for node in signal_nodes
-                if node.kind == kind and not self.graph.predecessors[node]
-            )
+            nodes = tuple(node for node in signal_nodes if node.kind == kind and not self.graph.predecessors[node])
             if not isinstance(supplied_values, tuple):
                 raise TypeError(f"{name} must be a tuple")
             if len(supplied_values) != len(nodes):
@@ -446,23 +440,14 @@ class CompiledSystem:
                 raise TypeError(f"operation {node.path} must return a tuple")
             if len(results) != len(self.graph.successors[node]):
                 raise ValueError(
-                    f"operation {node.path} returned {len(results)} values; "
-                    f"expected {len(self.graph.successors[node])}"
+                    f"operation {node.path} returned {len(results)} values; expected {len(self.graph.successors[node])}"
                 )
 
             for successor, edge in self.graph.successors[node].items():
                 values[successor] = results[edge.port]
 
-        outputs = tuple(
-            values[node]
-            for node in signal_nodes
-            if node.kind == SignalKind.OUTPUT
-        )
-        derivatives = tuple(
-            values[node]
-            for node in signal_nodes
-            if node.kind == SignalKind.STATE_DERIVATIVE
-        )
+        outputs = tuple(values[node] for node in signal_nodes if node.kind == SignalKind.OUTPUT)
+        derivatives = tuple(values[node] for node in signal_nodes if node.kind == SignalKind.STATE_DERIVATIVE)
         return outputs, derivatives
 
 
@@ -477,7 +462,6 @@ class StaticSystem(System):
 
 
 class DynamicSystem(System):
-
     # TODO: Implicit state derivative registration is disabled for now, because it couldn't be discovered statically by
     # the IDE typing engine. Instead, we can rely on the user to explicitly define state derivatives as needed.
     # def _register_owned(self, value: ComponentDescriptor) -> None:
@@ -510,8 +494,8 @@ class DynamicSystem(System):
 
 
 def make_equation_fn(
-    equation: Equation, owner_obj: System, input_ids: Tuple[uuid.UUID, ...], output_count: int
-) ->  Callable[[Tuple[Any, ...]], Tuple[Any, ...]]:
+    equation: Equation, owner_obj: System, input_ids: tuple[uuid.UUID, ...], output_count: int
+) -> Callable[[tuple[Any, ...]], tuple[Any, ...]]:
     def resolve_signals(value):
         if isinstance(value, Signal):
             return value.get_value()

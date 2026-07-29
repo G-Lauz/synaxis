@@ -1,5 +1,3 @@
-from typing import Optional
-
 import jax
 import matplotlib.pyplot as plt
 import numpy
@@ -15,7 +13,6 @@ from minilink.core import (
     StaticSystem,
     System,
 )
-
 from minilink.diagram import to_dot
 from minilink.solver import Euler
 
@@ -52,14 +49,14 @@ class LTISystem(DynamicSystem):
     y = Output()
 
     def compute_outputs(self):
-        return bmm(self.C, self.x)# + bmm(self.D, self.u)
+        return bmm(self.C, self.x)  # + bmm(self.D, self.u)
 
     def compute_dynamics(self):
         return bmm(self.A, self.x) + bmm(self.B, self.u)
 
 
 class ProportionalController(StaticSystem):
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name=None) -> None:
         name = name if name is not None else "proportional controller"
         super().__init__(name)
 
@@ -76,7 +73,7 @@ class ProportionalController(StaticSystem):
 class ClosedLoopModel(System):
     plant = LTISystem()
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name=None) -> None:
         name = name if name is not None else "closed-loop model"
         super().__init__(name)
 
@@ -116,15 +113,13 @@ def main():
     reference = 5.0
     compiled_model[model.reference] = reference
 
-    finale_state, trajectory = solver.rollout(compiled_model,  n_steps=n_steps)
+    finale_state, trajectory = solver.rollout(compiled_model, n_steps=n_steps)
 
     print("Final state:", finale_state)
     print("Trajectory shape:", trajectory[0].shape)
 
     # jitted
-    jitted_rolout = jax.jit(
-        lambda: solver.rollout(compiled_model, n_steps=n_steps)
-    )
+    jitted_rolout = jax.jit(lambda: solver.rollout(compiled_model, n_steps=n_steps))
     jit_final_state, jit_trajectory = jitted_rolout()
 
     # vmap

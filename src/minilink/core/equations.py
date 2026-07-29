@@ -1,19 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Concatenate, Generic, Optional, ParamSpec, Protocol, TypeVar, cast
+from typing import Any, Callable, Concatenate, Generic, ParamSpec, Protocol, TypeVar, cast
 
 from .components import ComponentDescriptor, ComponentKind
 
-
 OwnerType = TypeVar("OwnerType")
-P = ParamSpec("P") # parameters
-R = TypeVar("R") # return type
+P = ParamSpec("P")  # parameters
+R = TypeVar("R")  # return type
 R_co = TypeVar("R_co", covariant=True)
 
 
 class EquationProtocol(Protocol[P, R_co]):
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co:
-        ...
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
 
 
 class Equation(ComponentDescriptor, Generic[OwnerType, P, R]):
@@ -33,7 +31,7 @@ class Equation(ComponentDescriptor, Generic[OwnerType, P, R]):
         equation_type = type(self)
         return equation_type(self.func)
 
-    def __get__(self, instance: Optional[object], owner: Optional[type] = None) -> Any:
+    def __get__(self, instance: object | None, owner: type | None = None) -> Any:
         if instance is None:
             return self
 

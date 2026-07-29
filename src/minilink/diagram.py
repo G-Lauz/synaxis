@@ -1,5 +1,3 @@
-from typing import Dict
-
 from .core.computation_graph import (
     BipartiteComputationGraph,
     Node,
@@ -13,11 +11,9 @@ from .core.signals import SignalKind
 def to_dot(graph: BipartiteComputationGraph, explicit_connection: bool = True) -> str:
     """Return a Graphviz DOT representation of a computation graph."""
     connection_nodes = {
-        node
-        for node in graph.successors
-        if isinstance(node, OperationNode) and node.kind == OperationKind.CONNECTION
+        node for node in graph.successors if isinstance(node, OperationNode) and node.kind == OperationKind.CONNECTION
     }
-    node_ids: Dict[Node, str] = {
+    node_ids: dict[Node, str] = {
         node: f"node_{index}"
         for index, node in enumerate(graph.successors)
         if explicit_connection or node not in connection_nodes
@@ -46,12 +42,14 @@ def to_dot(graph: BipartiteComputationGraph, explicit_connection: bool = True) -
             elif node.kind == SignalKind.STATE:
                 color = "#fff2cc"
             elif node.kind == SignalKind.STATE_DERIVATIVE:
-                shape="box"
+                shape = "box"
                 style = style + ", rounded"
             elif node.kind == SignalKind.PARAM:
                 color = "#e6e6e6"
 
-        lines.append(f"  {node_id} [label={_quote(label)}, shape={shape}, style={_quote(style)}, fillcolor={_quote(color)}];")
+        lines.append(
+            f"  {node_id} [label={_quote(label)}, shape={shape}, style={_quote(style)}, fillcolor={_quote(color)}];"
+        )
 
     for source, successors in graph.successors.items():
         for target in successors:

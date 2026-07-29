@@ -3,11 +3,7 @@ from __future__ import annotations
 import abc
 import enum
 import uuid
-from typing import Any, ClassVar, Optional, TypeVar, cast, overload
-
-
-T = TypeVar("T", bound="ComponentDescriptor")
-
+from typing import Any, ClassVar, Self, cast, overload
 
 _MISSING = object()
 
@@ -21,16 +17,16 @@ class ComponentKind(enum.Enum):
 class ComponentDescriptor(abc.ABC):
     _uuid: uuid.UUID
     name: str
-    _user_defined_name: Optional[str] = None
-    _attribute_name: Optional[str] = None
-    owner_id: Optional[uuid.UUID] = None
-    owner_cls: Optional[str] = None
+    _user_defined_name: str | None = None
+    _attribute_name: str | None = None
+    owner_id: uuid.UUID | None = None
+    owner_cls: str | None = None
     kind: ClassVar[ComponentKind]
 
-    def __new__(cls: type[T], *args: Any, **kwargs: Any) -> T:
+    def __new__(cls, *args: Any, **kwargs: Any) -> Self:
         instance = object.__new__(cls)
         object.__setattr__(instance, "_uuid", uuid.uuid4())
-        return cast(T, instance)
+        return instance
 
     def __set_name__(self, owner: type, name: str) -> None:
         self._attribute_name = name
@@ -38,18 +34,18 @@ class ComponentDescriptor(abc.ABC):
         self.owner_cls = owner.__name__
 
     @overload
-    def __get__(self: T, instance: None, owner: Optional[type] = None) -> T: ...
+    def __get__(self, instance: None, owner: type | None = None) -> Self: ...
 
     @overload
-    def __get__(self: T, instance: object, owner: Optional[type] = None) -> T: ...
+    def __get__(self, instance: object, owner: type | None = None) -> Self: ...
 
-    def __get__(self: T, instance: Optional[object], owner: Optional[type] = None) -> T:
+    def __get__(self, instance: object | None, owner: type | None = None) -> Self:
         if instance is None:
             return self
 
         return self._materialize(instance)
 
-    def _materialize(self: T, instance: object) -> T:
+    def _materialize(self, instance: object) -> Self:
         # if obj as been defined as class attribute of a system it should be cloned to avoid
         # shared obj for multiple instance of the system
         instance_dict = cast(Any, instance).__dict__
@@ -59,11 +55,9 @@ class ComponentDescriptor(abc.ABC):
             obj = self.clone()
             setattr(instance, attribute_name, obj)
 
-        return cast(T, obj)
+        return cast(Self, obj)
 
-    def bind_owner(
-        self, *, name: str, owner: Optional[type] = None, owner_id: Optional[uuid.UUID] = None
-    ) -> None:
+    def bind_owner(self, *, name: str, owner: type | None = None, owner_id: uuid.UUID | None = None) -> None:
         self.name = self._user_defined_name if self._user_defined_name is not None else name
         self.owner_id = owner_id
         self.owner_cls = owner.__name__ if owner is not None else None

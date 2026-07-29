@@ -1,11 +1,9 @@
 import dataclasses
 import enum
 import uuid
-
-from typing import Any, Callable, List, Tuple, Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar
 
 from .signals import SignalKind
-
 
 T = TypeVar("T")
 
@@ -17,8 +15,8 @@ class OperationKind(enum.Enum):
 
 @dataclasses.dataclass(frozen=True)
 class Node:
-    id: uuid.UUID # the id of the frontend defined signal (to later index results)
-    path: str # human readable identifier for the signal
+    id: uuid.UUID  # the id of the frontend defined signal (to later index results)
+    path: str  # human readable identifier for the signal
 
 
 @dataclasses.dataclass(frozen=True)
@@ -46,7 +44,7 @@ class OperationNode(Node):
     # )
     # searching for F(y, u) = 0
     kind: OperationKind
-    fn: Callable[[Tuple[Any, ...]], Tuple[Any, ...]] # TODO: define proper signature
+    fn: Callable[[tuple[Any, ...]], tuple[Any, ...]]  # TODO: define proper signature
 
 
 @dataclasses.dataclass(frozen=True)
@@ -60,6 +58,7 @@ class BipartiteComputationGraph:
     """
     A dual adjacency list representation of a bipartite graph
     """
+
     def __init__(self) -> None:
         self.successors = {}
         self.predecessors = {}
@@ -75,8 +74,10 @@ class BipartiteComputationGraph:
 
     def add_edge(self, source: Node, target: Node, *, port: int):
         is_valid_edge = (
-            isinstance(source, SignalNode) and isinstance(target, OperationNode)
-            or isinstance(source, OperationNode) and isinstance(target, SignalNode)
+            isinstance(source, SignalNode)
+            and isinstance(target, OperationNode)
+            or isinstance(source, OperationNode)
+            and isinstance(target, SignalNode)
         )
 
         if not is_valid_edge:
@@ -103,8 +104,8 @@ class BipartiteComputationGraph:
         # copy the input degrees to avoid modifying the original graph
         input_degrees = self.input_degrees.copy()
 
-        topological_order: List[Node] = []
-        queue = [node for node in self.successors if input_degrees.get(node, 0) == 0]
+        topological_order: list[Node] = []
+        queue = self.get_unconnected_nodes()
 
         while queue:
             node = queue.pop(0)
@@ -122,7 +123,7 @@ class BipartiteComputationGraph:
         """Check if the graph has an algebraic loop (i.e., a cycle)."""
         return len(self.topological_order()) != len(self.successors)
 
-    def get_unconnected_nodes(self) -> List[Node]:
+    def get_unconnected_nodes(self) -> list[Node]:
         """
         Return a list of nodes without predecessors (without incomming edges).
         """

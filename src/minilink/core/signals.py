@@ -5,7 +5,8 @@ import contextlib
 import contextvars
 import enum
 import uuid
-from typing import Any, Callable, Generic, Iterator, List, Optional, Set, Tuple, TypeVar, Union, cast, overload
+from collections.abc import Iterator
+from typing import Any, Callable, Generic, TypeVar, Union, cast, overload
 
 import jax
 import numpy
@@ -33,22 +34,22 @@ class SignalKind(enum.Enum):
     OUTPUT = enum.auto()
 
 
-class Signal(ComponentDescriptor, Generic[T], abc.ABC):
+class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
     kind = ComponentKind.SIGNAL
     signal_kind: SignalKind
     value: T
     dim: int
-    lower_bounds: Optional[jax.typing.ArrayLike] = None
-    upper_bounds: Optional[jax.typing.ArrayLike] = None
-    nominal_value: Optional[T] = None
+    lower_bounds: jax.typing.ArrayLike | None = None
+    upper_bounds: jax.typing.ArrayLike | None = None
+    nominal_value: T | None = None
 
     def __init__(
         self,
         *,
-        name: Optional[str] = None,
-        nominal_value: Optional[T] = None,
-        lower_bounds: Optional[jax.typing.ArrayLike] = None,
-        upper_bounds: Optional[jax.typing.ArrayLike] = None,
+        name: str | None = None,
+        nominal_value: T | None = None,
+        lower_bounds: jax.typing.ArrayLike | None = None,
+        upper_bounds: jax.typing.ArrayLike | None = None,
     ):
         self._user_defined_name = name
 
@@ -85,7 +86,7 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
     def __jax_array__(self) -> jax.Array:
         return jax.numpy.asarray(self.get_value())
 
-    def __array__(self, dtype: Any = None, copy: Optional[bool] = None) -> numpy.ndarray:
+    def __array__(self, dtype: Any = None, copy: bool | None = None) -> numpy.ndarray:
         if copy is None:
             return numpy.asarray(self.get_value(), dtype=dtype)
 
@@ -247,14 +248,14 @@ class Output(Signal[T]):
 SignalLike = Union[T, Signal[T]]
 
 
-_SignalReadState = Tuple[List[Signal[Any]], Set[uuid.UUID]]
-_SIGNAL_READS: contextvars.ContextVar[Optional[_SignalReadState]] = contextvars.ContextVar("_SIGNAL_READS", default=None)
-_SIGNAL_USES: contextvars.ContextVar[Optional[dict[uuid.UUID, Any]]] = contextvars.ContextVar("_SIGNAL_USES", default=None)
+_SignalReadState = tuple[list[Signal[Any]], set[uuid.UUID]]
+_SIGNAL_READS: contextvars.ContextVar[_SignalReadState | None] = contextvars.ContextVar("_SIGNAL_READS", default=None)
+_SIGNAL_USES: contextvars.ContextVar[dict[uuid.UUID, Any] | None] = contextvars.ContextVar("_SIGNAL_USES", default=None)
 
 
 @contextlib.contextmanager
-def _trace_signals() -> Iterator[List[Signal[Any]]]:
-    traced: List[Signal[Any]] = []
+def _trace_signals() -> Iterator[list[Signal[Any]]]:
+    traced: list[Signal[Any]] = []
     token = _SIGNAL_READS.set((traced, set()))
     try:
         yield traced
