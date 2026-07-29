@@ -113,33 +113,32 @@ def main():
     reference = 5.0
     compiled_model[model.reference] = reference
 
-    finale_state, trajectory = solver.rollout(compiled_model, n_steps=n_steps)
+    trajectory = solver.rollout(compiled_model, n_steps=n_steps)
 
-    print("Final state:", finale_state)
-    print("Trajectory shape:", trajectory[0].shape)
+    print("Final state:", trajectory[model.plant.x][-1])
+    print("Trajectory shape:", trajectory[model.plant.x].shape)
 
     # jitted
     jitted_rolout = jax.jit(lambda: solver.rollout(compiled_model, n_steps=n_steps))
-    jit_final_state, jit_trajectory = jitted_rolout()
+    jit_trajectory = jitted_rolout()
 
     # vmap
     def rollout_given_gain(kp):
         compiled_model[model.controller.kp] = kp
-        _, traj = solver.rollout(compiled_model, n_steps=n_steps)
-        return traj
+        return solver.rollout(compiled_model, n_steps=n_steps)
 
     vmapped_rollout = jax.jit(jax.vmap(rollout_given_gain))
 
     gains = jax.numpy.array([0.5, 1.0, 2.0, 5.0])
     vmap_trajectories = vmapped_rollout(gains)
 
-    print(len(vmap_trajectories), vmap_trajectories[0].shape)
+    print(vmap_trajectories[model.plant.x].shape)
 
     # grad
     def loss(kp):
         compiled_model[model.controller.kp] = kp
-        end_states, _ = solver.rollout(compiled_model, n_steps=n_steps)
-        return jax.numpy.sum((end_states[0] - reference) ** 2)
+        traj = solver.rollout(compiled_model, n_steps=n_steps)
+        return jax.numpy.sum((traj[model.plant.x][-1] - reference) ** 2)
 
     grad_loss = jax.jit(jax.vmap(jax.grad(loss)))
     gains_grads = grad_loss(gains)
@@ -147,9 +146,9 @@ def main():
     print(f"Gradients wrt. gains: {gains_grads}")
 
     plt.figure()
-    plt.plot(time, trajectory[0], label="plant.x")
-    plt.plot(time, jit_trajectory[0], label="jit plant.x", linestyle="--")
-    for gain, traj in zip(gains, vmap_trajectories[0]):
+    plt.plot(time, trajectory[model.plant.x], label="plant.x")
+    plt.plot(time, jit_trajectory[model.plant.x], label="jit plant.x", linestyle="--")
+    for gain, traj in zip(gains, vmap_trajectories[model.plant.x]):
         plt.plot(time, traj, label=f"kp={gain}")
     plt.xlabel("Time [s]")
     plt.ylabel("State value")

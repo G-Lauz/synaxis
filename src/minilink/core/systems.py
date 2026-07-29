@@ -370,24 +370,20 @@ class CompiledSystem:
         self._id_nodes_map: dict[uuid.UUID, SignalNode] = {
             node.id: node for node in self.graph.successors if isinstance(node, SignalNode)
         }
+        self._signal_nodes = tuple(self._id_nodes_map.values())
 
-        input_nodes = self.graph.get_unconnected_nodes()
+        self._input_nodes = self.graph.get_unconnected_nodes()
         self._initial_values: dict[uuid.UUID, Any] = {
-            node.id: node.value for node in input_nodes if isinstance(node, SignalNode)
+            node.id: node.value for node in self._input_nodes if isinstance(node, SignalNode)
         }
 
-    # def __getitem__(self, key: uuid.UUID) -> ComponentDescriptor:
-
     def __setitem__(self, signal: Signal, value: Any) -> None:
-        node = self._id_nodes_map.get(signal._uuid, None)
+        node = self._initial_values.get(signal._uuid, None)
 
         if node is None:
-            raise KeyError(f"signal {signal.name} (id={signal._uuid.hex[:5]}) not found in compiled system")
-
-        # only allow setting values for unconnected signals (i.e., those without predecessors in the graph)
-        if self.graph.predecessors[node]:
-            raise ValueError(
-                f"signal {signal.name} (id={signal._uuid.hex[:5]}) is connected in the graph and cannot be set directly"
+            raise KeyError(
+                f"signal {signal.name} (id={signal._uuid.hex[:5]}) is not part of the compiled system or is not an"
+                f" input signal. Available input signals: {[node.path for node in self._input_nodes]}"
             )
 
         self._initial_values[signal._uuid] = value
@@ -411,8 +407,10 @@ class CompiledSystem:
         Runtime tuples map to unconnected signals in graph registration order.
         Outputs and state derivatives are returned in that same order.
         """
-        signal_nodes = tuple(node for node in self.graph.successors if isinstance(node, SignalNode))
         values = {}
+
+        # TODO: there's a lot of duplicated data structures here, and the flow of data is convoluted. We should
+        # simplify this.
 
         runtime_values = (
             (SignalKind.STATE, states, "states"),
@@ -420,7 +418,9 @@ class CompiledSystem:
             (SignalKind.PARAM, params, "params"),
         )
         for kind, supplied_values, name in runtime_values:
-            nodes = tuple(node for node in signal_nodes if node.kind == kind and not self.graph.predecessors[node])
+            nodes = tuple(
+                node for node in self._signal_nodes if node.kind == kind and not self.graph.predecessors[node]
+            )
             if not isinstance(supplied_values, tuple):
                 raise TypeError(f"{name} must be a tuple")
             if len(supplied_values) != len(nodes):
@@ -446,9 +446,8 @@ class CompiledSystem:
             for successor, edge in self.graph.successors[node].items():
                 values[successor] = results[edge.port]
 
-        outputs = tuple(values[node] for node in signal_nodes if node.kind == SignalKind.OUTPUT)
-        derivatives = tuple(values[node] for node in signal_nodes if node.kind == SignalKind.STATE_DERIVATIVE)
-        return outputs, derivatives
+        result_by_id = {node.id: values[node] for node in self._signal_nodes}
+        return result_by_id
 
 
 class StaticSystem(System):
