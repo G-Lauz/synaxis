@@ -2,9 +2,12 @@ import dataclasses
 import enum
 import uuid
 
-from typing import Any, Callable, List, Tuple
+from typing import Any, Callable, List, Tuple, Generic, TypeVar
 
 from .signals import SignalKind
+
+
+T = TypeVar("T")
 
 
 class OperationKind(enum.Enum):
@@ -19,8 +22,9 @@ class Node:
 
 
 @dataclasses.dataclass(frozen=True)
-class SignalNode(Node):
+class SignalNode(Node, Generic[T]):
     kind: SignalKind
+    value: T = dataclasses.field(compare=False, hash=False)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -117,3 +121,9 @@ class BipartiteComputationGraph:
     def has_algebraic_loop(self) -> bool:
         """Check if the graph has an algebraic loop (i.e., a cycle)."""
         return len(self.topological_order()) != len(self.successors)
+
+    def get_unconnected_nodes(self) -> List[Node]:
+        """
+        Return a list of nodes without predecessors (without incomming edges).
+        """
+        return [node for node in self.successors if self.input_degrees.get(node, 0) == 0]

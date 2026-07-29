@@ -104,43 +104,33 @@ def main():
 
     solver = Euler(dt=dt)
 
-    initial_states = (jax.numpy.array([0.0]),)
-    params = (
-        jax.numpy.array([-1.0]),  # A
-        jax.numpy.array([1.0]),  # B
-        jax.numpy.array([1.0]),  # C
-        jax.numpy.array([0.0]),  # D
-        jax.numpy.array([2.0]),  # kp
-    )
-    inputs = (
-        jax.numpy.array([5.0]),  # reference
-    )
+    compiled_model[model.plant.x] = jax.numpy.array([0.0])  # initial state
 
-    finale_state, trajectory = solver.rollout(
-        compiled_model, initial_states, inputs, params, n_steps=n_steps
-    )
+    compiled_model[model.plant.A] = -1.0
+    compiled_model[model.plant.B] = 1.0
+    compiled_model[model.plant.C] = 1.0
+    compiled_model[model.plant.D] = 0.0
+
+    compiled_model[model.controller.kp] = 2.0
+
+    reference = 5.0
+    compiled_model[model.reference] = reference
+
+    finale_state, trajectory = solver.rollout(compiled_model,  n_steps=n_steps)
 
     print("Final state:", finale_state)
     print("Trajectory shape:", trajectory[0].shape)
 
     # jitted
     jitted_rolout = jax.jit(
-        lambda states, inputs, params: solver.rollout(
-            compiled_model, states, inputs, params, n_steps=n_steps
-        )
+        lambda: solver.rollout(compiled_model, n_steps=n_steps)
     )
-    jit_final_state, jit_trajectory = jitted_rolout(initial_states, inputs, params)
+    jit_final_state, jit_trajectory = jitted_rolout()
 
     # vmap
     def rollout_given_gain(kp):
-        params = (
-            jax.numpy.array([-1.0]),  # A
-            jax.numpy.array([1.0]),  # B
-            jax.numpy.array([1.0]),  # C
-            jax.numpy.array([0.0]),  # D
-            jax.numpy.array([kp,]),  # kp
-        )
-        _, traj = solver.rollout(compiled_model, initial_states, inputs, params, n_steps=n_steps)
+        compiled_model[model.controller.kp] = kp
+        _, traj = solver.rollout(compiled_model, n_steps=n_steps)
         return traj
 
     vmapped_rollout = jax.jit(jax.vmap(rollout_given_gain))
@@ -152,17 +142,9 @@ def main():
 
     # grad
     def loss(kp):
-        params = (
-            jax.numpy.array([-1.0]),  # A
-            jax.numpy.array([1.0]),  # B
-            jax.numpy.array([1.0]),  # C
-            jax.numpy.array([0.0]),  # D
-            jax.numpy.array([kp,]),  # kp
-        )
-        end_states, _ = solver.rollout(
-            compiled_model, initial_states, inputs, params, n_steps=n_steps
-        )
-        return jax.numpy.sum((end_states[0] - inputs[0]) ** 2)
+        compiled_model[model.controller.kp] = kp
+        end_states, _ = solver.rollout(compiled_model, n_steps=n_steps)
+        return jax.numpy.sum((end_states[0] - reference) ** 2)
 
     grad_loss = jax.jit(jax.vmap(jax.grad(loss)))
     gains_grads = grad_loss(gains)
@@ -171,6 +153,7 @@ def main():
 
     plt.figure()
     plt.plot(time, trajectory[0], label="plant.x")
+    plt.plot(time, jit_trajectory[0], label="jit plant.x", linestyle="--")
     for gain, traj in zip(gains, vmap_trajectories[0]):
         plt.plot(time, traj, label=f"kp={gain}")
     plt.xlabel("Time [s]")

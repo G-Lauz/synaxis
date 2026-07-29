@@ -217,6 +217,7 @@ class System(ComponentDescriptor, abc.ABC):
                 id=signal_id,
                 path=self.describe_path(path_by_id[signal_id]),
                 kind=signal.signal_kind,
+                value=signal.get_value(),
             ) for signal_id, signal in classified_descendants.get(ComponentKind.SIGNAL, {}).items()
         }
 
@@ -280,7 +281,6 @@ class System(ComponentDescriptor, abc.ABC):
             )
 
         return CompiledSystem(graph)
-
 
     def _result_signals(self, value):
         if isinstance(value, Signal):
@@ -359,7 +359,51 @@ class CompiledSystem:
     def __init__(self, graph: BipartiteComputationGraph):
         self.graph = graph
 
+        self._id_nodes_map: Dict[uuid.UUID, SignalNode] = {
+            node.id: node for node in self.graph.successors if isinstance(node, SignalNode)
+        }
+
+        input_nodes = self.graph.get_unconnected_nodes()
+        self._initial_values: Dict[uuid.UUID, Any] = {
+            node.id: node.value
+            for node in input_nodes if isinstance(node, SignalNode)
+        }
+
     # def __getitem__(self, key: uuid.UUID) -> ComponentDescriptor:
+
+    def __setitem__(self, signal: Signal, value: Any) -> None:
+        node = self._id_nodes_map.get(signal._uuid, None)
+
+        if node is None:
+            raise KeyError(
+                f"signal {signal.name} (id={signal._uuid.hex[:5]}) not found in compiled system"
+            )
+
+        # only allow setting values for unconnected signals (i.e., those without predecessors in the graph)
+        if self.graph.predecessors[node]:
+            raise ValueError(
+                f"signal {signal.name} (id={signal._uuid.hex[:5]}) is connected in the graph and cannot be set directly"
+            )
+
+        self._initial_values[signal._uuid] = value
+
+    def initial_values(self) -> Tuple[Tuple[Any, ...], Tuple[Any, ...], Tuple[Any, ...]]:
+        states = tuple(
+            value
+            for id, value in self._initial_values.items()
+            if self._id_nodes_map[id].kind == SignalKind.STATE
+        )
+        inputs = tuple(
+            value
+            for id, value in self._initial_values.items()
+            if self._id_nodes_map[id].kind == SignalKind.INPUT
+        )
+        params = tuple(
+            value
+            for id, value in self._initial_values.items()
+            if self._id_nodes_map[id].kind == SignalKind.PARAM
+        )
+        return states, inputs, params
 
     def evaluate(self, states, inputs, params):
         """Evaluate one graph pass.

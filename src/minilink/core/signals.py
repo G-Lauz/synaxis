@@ -8,7 +8,7 @@ import uuid
 from typing import Any, Callable, Generic, Iterator, List, Optional, Set, Tuple, TypeVar, Union, cast, overload
 
 import jax
-import numpy as np
+import numpy
 
 from .components import ComponentDescriptor, ComponentKind
 
@@ -53,7 +53,8 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
         self._user_defined_name = name
 
         self.nominal_value = nominal_value
-        self.value = nominal_value if nominal_value is not None else 0.0
+        # TODO: handle case where value is not a jax array (e.g. list, float, etc.)
+        self.value = nominal_value if nominal_value is not None else jax.numpy.array([0.0])
 
         if nominal_value is not None:
             self.dim = 1  # TODO
@@ -84,11 +85,11 @@ class Signal(ComponentDescriptor, Generic[T], abc.ABC):
     def __jax_array__(self) -> jax.Array:
         return jax.numpy.asarray(self.get_value())
 
-    def __array__(self, dtype: Any = None, copy: Optional[bool] = None) -> np.ndarray:
+    def __array__(self, dtype: Any = None, copy: Optional[bool] = None) -> numpy.ndarray:
         if copy is None:
-            return np.asarray(self.get_value(), dtype=dtype)
+            return numpy.asarray(self.get_value(), dtype=dtype)
 
-        return np.asarray(self.get_value(), dtype=dtype, copy=copy)
+        return numpy.asarray(self.get_value(), dtype=dtype, copy=copy)
 
     def get_value(self, *, index: Any = DUMMY) -> T:
         value = jax.tree.map(lambda x: x, self.value)  # shallow copy to prevent mutation of value
