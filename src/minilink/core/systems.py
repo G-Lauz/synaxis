@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import uuid
+from collections.abc import Mapping
 from typing import Any, Callable, TypeVar
 
 from .components import ComponentDescriptor, ComponentKind
@@ -156,7 +157,7 @@ class System(ComponentDescriptor, abc.ABC):
         ) = self._parse_descendants()
 
         # 5. get equations hyperedges
-        equation_edges: list[tuple[uuid.UUID, list[uuid.UUID], list[uuid.UUID]]] = []
+        equation_edges: list[tuple[uuid.UUID, tuple[Signal, ...], tuple[Signal, ...]]] = []
         for eq in classified_descendants.get(ComponentKind.EQUATION, {}).values():
             # TODO: documentation: equations are expected to be pure functions
             # interdiction:
@@ -182,7 +183,7 @@ class System(ComponentDescriptor, abc.ABC):
                     f"failed to trace equation {self.describe_path(path_by_id[eq._uuid])} (id={eq._uuid})"
                 ) from exception
 
-            equation_inputs: list[uuid.UUID] = [signal._uuid for signal in traced_signals]
+            equation_inputs: tuple[Signal, ...] = tuple(signal for signal in traced_signals)
 
             # TODO (NEED IMPROVEMENT): all this constructs make the whole system couple to a state space model. This may limit the generality of the framework, preventing someone to implement its own equation and specify where it should be in the system computation graph.
 
@@ -190,14 +191,12 @@ class System(ComponentDescriptor, abc.ABC):
 
             # parse output and state signals from the component to define equation outputs
             # although the state equations doesn't return a state but rather the state derivative, we still consider the state as an output since it shares the same metadata
-            equation_outputs: list[uuid.UUID] = []
-
             if eq.name == "_compute_outputs":
-                equation_outputs = [id for id, output in owner_obj._signals.items() if isinstance(output, Output)]
+                equation_outputs = tuple(output for output in owner_obj._signals.values() if isinstance(output, Output))
             elif eq.name == "_compute_dynamics":
-                equation_outputs = [
-                    id for id, state in owner_obj._signals.items() if isinstance(state, StateDerivative)
-                ]
+                equation_outputs = tuple(
+                    state for state in owner_obj._signals.values() if isinstance(state, StateDerivative)
+                )
             else:
                 raise ValueError(
                     f"unsuported equation at {self.describe_path(path_by_id[eq._uuid])} (id={eq._uuid[5:]}); "
@@ -216,7 +215,6 @@ class System(ComponentDescriptor, abc.ABC):
                 id=signal_id,
                 path=self.describe_path(path_by_id[signal_id]),
                 kind=signal.signal_kind,
-                value=signal.get_value(),
             )
             for signal_id, signal in classified_descendants.get(ComponentKind.SIGNAL, {}).items()
         }
@@ -231,40 +229,30 @@ class System(ComponentDescriptor, abc.ABC):
                 id=eq_id,
                 path=self.describe_path(path_by_id[eq_id]),
                 kind=OperationKind.EQUATION,
-                fn=make_equation_fn(eq, owner_obj, tuple(inputs), len(outputs)),
+                fn=make_equation_fn(eq, owner_obj, inputs, outputs),
             )
             graph.add_node(operation_node)
 
-            for port, signal_id in enumerate(inputs):
-                graph.add_edge(
-                    source=signal_nodes[signal_id],
-                    target=operation_node,
-                    port=port,
-                )
+            for signal in inputs:
+                graph.add_edge(source=signal_nodes[signal._uuid], target=operation_node)
 
-            for port, signal_id in enumerate(outputs):
-                graph.add_edge(
-                    source=operation_node,
-                    target=signal_nodes[signal_id],
-                    port=port,
-                )
+            for signal in outputs:
+                graph.add_edge(source=operation_node, target=signal_nodes[signal._uuid])
 
         for connection in raw_connections:
             operation = OperationNode(
                 id=connection._uuid,
                 path=f"{self.describe_path(path_by_id[connection.src._uuid])} -> {self.describe_path(path_by_id[connection.tgt._uuid])}",
                 kind=OperationKind.CONNECTION,
-                fn=lambda x: (x[0],),  # identity function
+                fn=make_connection_fn(source_id=connection.src._uuid, target_id=connection.tgt._uuid),
             )
             graph.add_edge(
                 source=signal_nodes[connection.src._uuid],
                 target=operation,
-                port=0,
             )
             graph.add_edge(
                 source=operation,
                 target=signal_nodes[connection.tgt._uuid],
-                port=0,
             )
 
         # 7. Check for algebraic loops (cycles) in the graph
@@ -285,7 +273,14 @@ class System(ComponentDescriptor, abc.ABC):
                 f"algebraic loop detected in the system. The following components are part of the loop: {remaining_paths}"
             )
 
-        return CompiledSystem(graph)
+        # get initial values for unconnected signals (inputs, states, params) to be used at runtime
+        initial_values = {
+            node.id: descendants[node.id].get_value()
+            for node in graph.get_unconnected_nodes()
+            if isinstance(node, SignalNode)
+        }
+
+        return CompiledSystem(graph, initial_values)
 
     def _result_signals(self, value):
         if isinstance(value, Signal):
@@ -364,90 +359,58 @@ class System(ComponentDescriptor, abc.ABC):
 
 
 class CompiledSystem:
-    def __init__(self, graph: BipartiteComputationGraph):
+    def __init__(self, graph: BipartiteComputationGraph, initial_values: Mapping[uuid.UUID, Any]):
         self.graph = graph
 
         self._id_nodes_map: dict[uuid.UUID, SignalNode] = {
             node.id: node for node in self.graph.successors if isinstance(node, SignalNode)
         }
-        self._signal_nodes = tuple(self._id_nodes_map.values())
 
-        self._input_nodes = self.graph.get_unconnected_nodes()
-        self._initial_values: dict[uuid.UUID, Any] = {
-            node.id: node.value for node in self._input_nodes if isinstance(node, SignalNode)
+        self._signal_ids_by_kind: dict[SignalKind, tuple[uuid.UUID, ...]] = {
+            kind: tuple(node.id for node in self._id_nodes_map.values() if node.kind == kind) for kind in SignalKind
         }
 
-    def __setitem__(self, signal: Signal, value: Any) -> None:
-        node = self._initial_values.get(signal._uuid, None)
+        self._initial_values = dict(initial_values)
 
-        if node is None:
+    def __setitem__(self, signal: Signal, value: Any) -> None:
+        if signal._uuid not in self._initial_values:
+            available_paths = [self._id_nodes_map[id].path for id in self._initial_values]
             raise KeyError(
-                f"signal {signal.name} (id={signal._uuid.hex[:5]}) is not part of the compiled system or is not an"
-                f" input signal. Available input signals: {[node.path for node in self._input_nodes]}"
+                f"signal {signal.name} (id={signal._uuid.hex[:5]}) is not part of the compiled system or is not a"
+                f" source signal. Available source signals: {available_paths}"
             )
 
         self._initial_values[signal._uuid] = value
 
     # TODO: proper type hinting
-    def initial_values(self) -> tuple[tuple[Any, ...], tuple[Any, ...], tuple[Any, ...]]:
-        states = tuple(
-            value for id, value in self._initial_values.items() if self._id_nodes_map[id].kind == SignalKind.STATE
-        )
-        inputs = tuple(
-            value for id, value in self._initial_values.items() if self._id_nodes_map[id].kind == SignalKind.INPUT
-        )
-        params = tuple(
-            value for id, value in self._initial_values.items() if self._id_nodes_map[id].kind == SignalKind.PARAM
-        )
-        return states, inputs, params
+    def initial_values(self) -> Mapping[uuid.UUID, Any]:
+        """Return a copy of the values required to evaluate the system"""
+        return self._initial_values.copy()
 
-    def evaluate(self, states, inputs, params):
-        """Evaluate one graph pass.
-
-        Runtime tuples map to unconnected signals in graph registration order.
-        Outputs and state derivatives are returned in that same order.
-        """
-        values = {}
-
-        # TODO: there's a lot of duplicated data structures here, and the flow of data is convoluted. We should
-        # simplify this.
-
-        runtime_values = (
-            (SignalKind.STATE, states, "states"),
-            (SignalKind.INPUT, inputs, "inputs"),
-            (SignalKind.PARAM, params, "params"),
-        )
-        for kind, supplied_values, name in runtime_values:
-            nodes = tuple(
-                node for node in self._signal_nodes if node.kind == kind and not self.graph.predecessors[node]
+    def evaluate(self, source_values: Mapping[uuid.UUID, Any]) -> dict[uuid.UUID, Any]:
+        """Evaluate one graph pass and return values for every signal."""
+        source_ids = set(source_values)
+        expected_ids = set(self._initial_values)
+        missing_ids = expected_ids - source_ids
+        unexpected_ids = source_ids - expected_ids
+        if missing_ids or unexpected_ids:
+            missing_paths = [self._id_nodes_map[id].path for id in missing_ids]
+            unexpected_paths = [self._id_nodes_map[id].path for id in unexpected_ids]
+            raise ValueError(
+                f"source values do not match the compiled system; "
+                f"missing signals: {missing_paths}, unexpected signals: {unexpected_paths}"
             )
-            if not isinstance(supplied_values, tuple):
-                raise TypeError(f"{name} must be a tuple")
-            if len(supplied_values) != len(nodes):
-                raise ValueError(f"expected {len(nodes)} {name}, got {len(supplied_values)}")
-            values.update(zip(nodes, supplied_values))
+
+        values = dict(source_values)
 
         for node in self.graph.topological_order():
             if not isinstance(node, OperationNode):
                 continue
 
-            arguments = [None] * len(self.graph.predecessors[node])
-            for predecessor, edge in self.graph.predecessors[node].items():
-                arguments[edge.port] = values[predecessor]
+            updates = node.fn(values)
+            values.update(updates)
 
-            results = node.fn(tuple(arguments))
-            if not isinstance(results, tuple):
-                raise TypeError(f"operation {node.path} must return a tuple")
-            if len(results) != len(self.graph.successors[node]):
-                raise ValueError(
-                    f"operation {node.path} returned {len(results)} values; expected {len(self.graph.successors[node])}"
-                )
-
-            for successor, edge in self.graph.successors[node].items():
-                values[successor] = results[edge.port]
-
-        result_by_id = {node.id: values[node] for node in self._signal_nodes}
-        return result_by_id
+        return values
 
 
 class StaticSystem(System):
@@ -493,31 +456,80 @@ class DynamicSystem(System):
 
 
 def make_equation_fn(
-    equation: Equation, owner_obj: System, input_ids: tuple[uuid.UUID, ...], output_count: int
-) -> Callable[[tuple[Any, ...]], tuple[Any, ...]]:
-    def resolve_signals(value):
+    equation: Equation, owner_obj: System, inputs: tuple[Signal, ...], outputs: tuple[Signal, ...]
+) -> Callable[[Mapping[uuid.UUID, Any]], dict[uuid.UUID, Any]]:
+    def resolve_signals(value) -> Any:
         if isinstance(value, Signal):
             return value.get_value()
         if isinstance(value, list):
             return [resolve_signals(item) for item in value]
         if isinstance(value, tuple):
             return tuple(resolve_signals(item) for item in value)
-        if isinstance(value, dict):
+        if isinstance(value, Mapping):
             return {key: resolve_signals(item) for key, item in value.items()}
         return value
 
-    def fn(values):
-        values_by_signal_id = dict(zip(input_ids, values))
+    # warm start for error handling and bounding strategy at compilation time
+    dummy_values = {signal._uuid: signal.get_value() for signal in inputs}
+    with _evaluate_signals(dummy_values):
+        dummy_result = resolve_signals(equation.func(owner_obj))
 
+    # define appropriate function bounding and error handling
+    bound_result: Callable[[Any], dict[uuid.UUID, Any]] | None = None
+
+    is_signal_mapping = isinstance(dummy_result, Mapping) and any(isinstance(key, Signal) for key in dummy_result)
+
+    if not outputs and dummy_result is None:
+        # no outputs and no result
+        # TODO: does this mean that the equation is useless? or should it be considered as constraints?
+        # if so, also adjust the function signature `outputs: tuple[Signal, ...]` -> `outputs: tuple[Signal]`
+        bound_result = lambda result: {}
+
+    if len(outputs) == 1 and not is_signal_mapping:
+        # single output doesn't need to be a mapping
+        bound_result = lambda result: {outputs[0]._uuid: result}
+
+    if bound_result == None and not isinstance(dummy_result, Mapping):
+        raise TypeError(
+            f"equation {equation.name}({equation._uuid.hex[:5]}) has {len(outputs)} outputs and must return a mapping keyed by output signals"
+        )
+
+    if bound_result == None and dummy_result is not None:
+        invalid_keys = [key for key in dummy_result if not isinstance(key, Output)]
+        if invalid_keys:
+            raise TypeError(
+                f"equation {equation.name}({equation._uuid.hex[:5]}) must use output signals as mapping keys, but got invalid keys: {invalid_keys}"
+            )
+
+        expected_by_ids = {signal._uuid: signal for signal in outputs}
+        actual_by_ids = {signal._uuid: signal for signal in dummy_result}
+        expected_ids = set(expected_by_ids)
+        actual_ids = set(actual_by_ids)
+        missing_outputs = expected_ids - actual_ids
+        unexpected_outputs = actual_ids - expected_ids
+        if missing_outputs or unexpected_outputs:
+            missing = [expected_by_ids[id].name for id in missing_outputs]
+            unexpected = [actual_by_ids[id].name for id in unexpected_outputs]
+            raise ValueError(
+                f"equation {equation.name}({equation._uuid.hex[:5]}) must return a mapping with keys corresponding to its outputs, but got missing keys: {missing} and unexpected keys: {unexpected}"
+            )
+
+    if bound_result is None:
+        # multiple outputs must be a mapping keyed by output signals
+        bound_result = lambda result: {signal._uuid: value for signal, value in result.items()}
+
+    def fn(values_by_signal_id: Mapping[uuid.UUID, Any]) -> dict[uuid.UUID, Any]:
         with _evaluate_signals(values_by_signal_id):
             result = resolve_signals(equation.func(owner_obj))
+        return bound_result(result)
 
-        if output_count == 0:
-            return ()
-        if output_count == 1:
-            return (result,)
-        if isinstance(result, dict):
-            return tuple(result.values())
-        return tuple(result)
+    return fn
+
+
+def make_connection_fn(
+    source_id: uuid.UUID, target_id: uuid.UUID
+) -> Callable[[Mapping[uuid.UUID, Any]], dict[uuid.UUID, Any]]:
+    def fn(values_by_signal_id: Mapping[uuid.UUID, Any]) -> dict[uuid.UUID, Any]:
+        return {target_id: values_by_signal_id[source_id]}
 
     return fn

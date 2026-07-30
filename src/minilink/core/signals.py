@@ -5,7 +5,7 @@ import contextlib
 import contextvars
 import enum
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any, Callable, Generic, TypeVar, Union, cast, overload
 
 import jax
@@ -250,7 +250,9 @@ SignalLike = Union[T, Signal[T]]
 
 _SignalReadState = tuple[list[Signal[Any]], set[uuid.UUID]]
 _SIGNAL_READS: contextvars.ContextVar[_SignalReadState | None] = contextvars.ContextVar("_SIGNAL_READS", default=None)
-_SIGNAL_USES: contextvars.ContextVar[dict[uuid.UUID, Any] | None] = contextvars.ContextVar("_SIGNAL_USES", default=None)
+_SIGNAL_USES: contextvars.ContextVar[Mapping[uuid.UUID, Any] | None] = contextvars.ContextVar(
+    "_SIGNAL_USES", default=None
+)
 
 
 @contextlib.contextmanager
@@ -264,7 +266,7 @@ def _trace_signals() -> Iterator[list[Signal[Any]]]:
 
 
 @contextlib.contextmanager
-def _evaluate_signals(values: dict[uuid.UUID, Any]) -> Iterator[None]:
+def _evaluate_signals(values: Mapping[uuid.UUID, Any]) -> Iterator[None]:
     token = _SIGNAL_USES.set(values)
     try:
         yield

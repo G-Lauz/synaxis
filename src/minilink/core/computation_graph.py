@@ -1,11 +1,10 @@
 import dataclasses
 import enum
 import uuid
-from typing import Any, Callable, Generic, TypeVar
+from collections.abc import Mapping
+from typing import Any, Callable
 
 from .signals import SignalKind
-
-T = TypeVar("T")
 
 
 class OperationKind(enum.Enum):
@@ -20,9 +19,8 @@ class Node:
 
 
 @dataclasses.dataclass(frozen=True)
-class SignalNode(Node, Generic[T]):
+class SignalNode(Node):
     kind: SignalKind
-    value: T = dataclasses.field(compare=False, hash=False)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -44,14 +42,7 @@ class OperationNode(Node):
     # )
     # searching for F(y, u) = 0
     kind: OperationKind
-    fn: Callable[[tuple[Any, ...]], tuple[Any, ...]]  # TODO: define proper signature
-
-
-@dataclasses.dataclass(frozen=True)
-class Edge:
-    # TODO (IMPROVMENT): port indexing are need for multi-input/output operations to keep track of the order of inputs
-    # and outputs. A better solution would be to use dictionary/mapping of inputs/ouputs
-    port: int
+    fn: Callable[[Mapping[uuid.UUID, Any]], dict[uuid.UUID, Any]]
 
 
 class BipartiteComputationGraph:
@@ -60,19 +51,25 @@ class BipartiteComputationGraph:
     """
 
     def __init__(self) -> None:
-        self.successors = {}
-        self.predecessors = {}
-        self.input_degrees = {}
+        self.successors: dict[Node, tuple[Node, ...]] = {}
+        self.predecessors: dict[Node, tuple[Node, ...]] = {}
 
         # cache for topological sorting
         self._topological_order = None
 
     def add_node(self, node: Node):
-        if node not in self.successors:
-            self.successors[node] = {}
-            self.predecessors[node] = {}
+        # node already exist
+        if node in self.successors:
+            return
+        # TODO: raise warning if node already exist
 
-    def add_edge(self, source: Node, target: Node, *, port: int):
+        self.successors[node] = ()
+        self.predecessors[node] = ()
+
+        # adding a node change topological order, so we invalidate the cache
+        self._topological_order = None
+
+    def add_edge(self, source: Node, target: Node):
         is_valid_edge = (
             isinstance(source, SignalNode)
             and isinstance(target, OperationNode)
@@ -89,12 +86,16 @@ class BipartiteComputationGraph:
         self.add_node(source)
         self.add_node(target)
 
-        edge = Edge(port=port)
+        # edge already exist
+        if target in self.successors[source]:
+            return
+        # TODO: raise warning if edge already exist
 
-        self.successors[source][target] = edge
-        self.predecessors[target][source] = edge
+        self.successors[source] += (target,)
+        self.predecessors[target] += (source,)
 
-        self.input_degrees[target] = self.input_degrees.get(target, 0) + 1
+        # adding an edge change topological order, so we invalidate the cache
+        self._topological_order = None
 
     def topological_order(self):
         """Kahn's algorithm for topological sorting"""
@@ -102,7 +103,7 @@ class BipartiteComputationGraph:
             return self._topological_order
 
         # copy the input degrees to avoid modifying the original graph
-        input_degrees = self.input_degrees.copy()
+        input_degrees = {node: len(predecessors) for node, predecessors in self.predecessors.items()}
 
         topological_order: list[Node] = []
         queue = self.get_unconnected_nodes()
@@ -127,4 +128,4 @@ class BipartiteComputationGraph:
         """
         Return a list of nodes without predecessors (without incomming edges).
         """
-        return [node for node in self.successors if self.input_degrees.get(node, 0) == 0]
+        return [node for node in self.successors if not self.predecessors[node]]
