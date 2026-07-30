@@ -31,6 +31,7 @@ class Euler:
         system: CompiledSystem,
         *,
         n_steps: int,
+        rng_key: Any = None,
     ):
         """Return final states and a trajectory that includes the initial states.
 
@@ -40,18 +41,28 @@ class Euler:
         state_ids = system._signal_ids_by_kind.get(SignalKind.STATE, ())
         derivative_ids = system._signal_ids_by_kind.get(SignalKind.STATE_DERIVATIVE, ())
 
+        noise_ids = system._signal_ids_by_kind.get(SignalKind.NOISE, ())
+
         # TODO: this check should happen at system compilation time
-        # if len(derivative_ids) != len(state_ids):
-        #     raise ValueError(
-        #         f"expected {len(state_ids)} state derivatives, got {len(derivative_ids)}. "
-        #         "Check that the system has the same number of state and state derivative signals."
-        #     )
+        if len(derivative_ids) != len(state_ids):
+            raise ValueError(
+                f"expected {len(state_ids)} state derivatives, got {len(derivative_ids)}. "
+                "Check that the system has the same number of state and state derivative signals."
+            )
 
         x0 = {id: initial_values[id] for id in state_ids}
         fixed_values = {id: initial_values[id] for id in initial_values if id not in state_ids}
 
-        def advance(states, _):
-            results_by_id = system.evaluate({**fixed_values, **states})
+        if rng_key is None:
+            rng_key = jax.random.PRNGKey(0)
+
+        def advance(carry, _):
+            states, key = carry
+
+            key, rng = jax.random.split(key)
+            noise_values = {id: jax.random.normal(rng, shape=initial_values[id].shape) for id in noise_ids}
+
+            results_by_id = system.evaluate({**fixed_values, **noise_values, **states})
 
             next_states = {
                 state_id: jax.tree.map(
@@ -61,16 +72,18 @@ class Euler:
                 )
                 for state_id, derivative_id in zip(state_ids, derivative_ids)
             }
-            return next_states, results_by_id
+            return (next_states, rng), results_by_id
 
-        final_states, trajectory = jax.lax.scan(
+        (final_states, rng_key), trajectory = jax.lax.scan(
             advance,
-            x0,
+            (x0, rng_key),
             xs=None,
             length=n_steps,
         )
 
-        final_result = system.evaluate({**fixed_values, **final_states})
+        noise_values = {id: jax.random.normal(rng_key, shape=initial_values[id].shape) for id in noise_ids}
+
+        final_result = system.evaluate({**fixed_values, **noise_values, **final_states})
 
         trajectories = jax.tree.map(
             lambda history, final_value: jax.numpy.concatenate(

@@ -32,6 +32,7 @@ class SignalKind(enum.Enum):
     STATE_DERIVATIVE = enum.auto()
     INPUT = enum.auto()
     OUTPUT = enum.auto()
+    NOISE = enum.auto()
 
 
 class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
@@ -242,6 +243,10 @@ class Input(Signal[T]):
 
 class Output(Signal[T]):
     signal_kind: SignalKind = SignalKind.OUTPUT
+
+
+class Noise(Signal[T]):
+    signal_kind: SignalKind = SignalKind.NOISE
 
 
 # tracing and evaluating signals
