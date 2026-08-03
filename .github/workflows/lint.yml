@@ -1,0 +1,44 @@
+name: Lint
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+            submodules: recursive
+            repository: ${{ github.event.inputs.repository }}
+            ref: ${{ github.event.inputs.ref }}
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/dev-requirements.txt
+
+      - name: Install pre-commit hooks
+        run: |
+          pre-commit install -t pre-commit
+
+      - name: Run pre-commit
+        id: run-pre-commit
+        run: |
+          pre-commit run --all-files --color=always
+
+      - name: Update error messages
+        if: always() && steps.run-pre-commit.outcome == 'failure'
+        run: |
+          if [ -f ".black.log" ]; then
+            grep -o 'reformatted .*\.py' .black.log | sed 's/reformatted \(.*\.py\)/\1: This file is unformatted. Run `black .`'
+          fi

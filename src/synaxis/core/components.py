@@ -28,6 +28,14 @@ class ComponentDescriptor(abc.ABC):
         object.__setattr__(instance, "_uuid", uuid.uuid4())
         return instance
 
+    @property
+    def id(self) -> uuid.UUID:
+        return self._uuid
+
+    @id.setter
+    def id(self, value: uuid.UUID) -> None:
+        raise AttributeError("ID attribute are immutable and cannot be modified.")
+
     def __set_name__(self, owner: type, name: str) -> None:
         self._attribute_name = name
         self.name = self._user_defined_name if self._user_defined_name is not None else name

@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Concatenate, Generic, ParamSpec, Protocol, TypeVar, cast
+from typing import (
+    Any,
+    Callable,
+    Concatenate,
+    Generic,
+    ParamSpec,
+    Protocol,
+    TypeVar,
+    cast,
+)
 
 from .components import ComponentDescriptor, ComponentKind
 

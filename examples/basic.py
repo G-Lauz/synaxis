@@ -2,7 +2,7 @@ import jax
 import matplotlib.pyplot as plt
 import numpy
 
-from minilink.core import (
+from synaxis.core import (
     DynamicSystem,
     Input,
     Output,
@@ -13,8 +13,8 @@ from minilink.core import (
     StaticSystem,
     System,
 )
-from minilink.diagram import to_dot
-from minilink.solver import Euler
+from synaxis.diagram import to_dot
+from synaxis.solver import Euler
 
 
 def bmm(

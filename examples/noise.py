@@ -2,25 +2,24 @@ import jax
 import matplotlib.pyplot as plt
 import numpy
 
-from minilink.blocks import WhiteNoise
-from minilink.core import (
+from synaxis.blocks import WhiteNoise
+from synaxis.core import (
     DynamicSystem,
     Input,
     Noise,
     Output,
     Param,
-    SignalLike,
     State,
     StateDerivative,
     StaticSystem,
     System,
 )
-from minilink.solver import Euler
+from synaxis.solver import Euler
 
 
 def bmm(
-    matrix: SignalLike,
-    vector: SignalLike,
+    matrix: jax.typing.ArrayLike,
+    vector: jax.typing.ArrayLike,
 ) -> jax.Array:
     """
     Batch matrix-vector multiplication.

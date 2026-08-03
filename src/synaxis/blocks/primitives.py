@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from minilink.core import DynamicSystem, Input, Output, Param, State, StateDerivative, StaticSystem
+from synaxis.core import (
+    DynamicSystem,
+    Input,
+    Output,
+    Param,
+    State,
+    StateDerivative,
+    StaticSystem,
+)
 
 
 class Gain(StaticSystem):

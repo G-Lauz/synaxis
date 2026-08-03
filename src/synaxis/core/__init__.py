@@ -1,4 +1,14 @@
-from .signals import Input, Noise, Output, Param, Signal, SignalLike, State, StateDerivative
+from .signals import (
+    Input,
+    Noise,
+    Output,
+    Param,
+    Signal,
+    SignalKind,
+    SignalLike,
+    State,
+    StateDerivative,
+)
 from .systems import CompiledSystem, DynamicSystem, StaticSystem, System
 
 __all__ = [
@@ -9,6 +19,7 @@ __all__ = [
     "Output",
     "Param",
     "Signal",
+    "SignalKind",
     "SignalLike",
     "State",
     "StateDerivative",

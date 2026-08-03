@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from minilink.core import Noise, Output, Param, StaticSystem
+from synaxis.core import Noise, Output, Param, StaticSystem
 
 
 class Constant(StaticSystem):

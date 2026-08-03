@@ -3,12 +3,44 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "minilink"
-version = "0.0.0"
-description = "A Jax-based Model Design Based Framework"
+name = "synaxis"
+authors = [
+    { name="G-Lauz", email="gabriel.lauzier@usherbrooke.ca" },
+]
+description = "A model design based framework for topology-aware execution."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
+classifiers = [
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+dynamic = ["version"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["minilink*"]
+include = ["synaxis*"]
+
+[project.urls]
+Homepage = "https://github.com/G-Lauz/synaxis"
+Issues = "https://github.com/G-Lauz/synaxis/issues"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.black]
+line-length = 120
+target-version = ["py311", "py312", "py313"]
+exclude = '''
+/(
+  \.toml
+  |\.sh
+  |\.git
+  |\.ini
+  |Dockerfile
+)/
+'''
+
+[tool.isort]
+profile = "black"
