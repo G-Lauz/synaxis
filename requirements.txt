@@ -1,6 +1,5 @@
 black==25.1.0
 build==1.2.2
-
 jax==0.10.1
 numpy==2.4.6
 pre-commit==4.2.0
