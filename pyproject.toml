@@ -7,7 +7,7 @@ name = "synaxis"
 authors = [
     { name="G-Lauz", email="gabriel.lauzier@usherbrooke.ca" },
 ]
-description = "A model design based framework for topology-aware execution."
+description = "A model-based design Python framework for topology-aware graph execution and dynamic system simulation."
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
