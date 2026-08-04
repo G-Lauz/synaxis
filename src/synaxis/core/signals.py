@@ -5,11 +5,8 @@ import contextlib
 import contextvars
 import enum
 import uuid
-from collections.abc import Iterator, Mapping
-from typing import Any, Callable, Generic, TypeVar, Union, cast, overload
-
-import jax
-import numpy
+from collections.abc import Callable, Iterator, Mapping
+from typing import Any, Generic, TypeVar, Union, cast, overload
 
 from .components import ComponentDescriptor, ComponentKind
 
@@ -40,8 +37,8 @@ class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
     signal_kind: SignalKind
     value: T
     dim: int
-    lower_bounds: jax.typing.ArrayLike | None = None
-    upper_bounds: jax.typing.ArrayLike | None = None
+    lower_bounds: Any | None = None
+    upper_bounds: Any | None = None
     nominal_value: T | None = None
 
     def __init__(
@@ -49,14 +46,14 @@ class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
         *,
         name: str | None = None,
         nominal_value: T | None = None,
-        lower_bounds: jax.typing.ArrayLike | None = None,
-        upper_bounds: jax.typing.ArrayLike | None = None,
+        lower_bounds: Any | None = None,
+        upper_bounds: Any | None = None,
     ):
         self._user_defined_name = name
 
         self.nominal_value = nominal_value
         # TODO: handle case where value is not a jax array (e.g. list, float, etc.)
-        self.value = nominal_value if nominal_value is not None else jax.numpy.array([0.0])
+        self.value = nominal_value if nominal_value is not None else cast(T, 0.0)
 
         if nominal_value is not None:
             self.dim = 1  # TODO
@@ -84,37 +81,13 @@ class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
 
         return super().__getattribute__(name)
 
-    def __jax_array__(self) -> jax.Array:
-        return jax.numpy.asarray(self.get_value())
-
-    def __array__(self, dtype: Any = None, copy: bool | None = None) -> numpy.ndarray:
-        if copy is None:
-            return numpy.asarray(self.get_value(), dtype=dtype)
-
-        return numpy.asarray(self.get_value(), dtype=dtype, copy=copy)
-
     def get_value(self, *, index: Any = DUMMY) -> T:
-        value = jax.tree.map(lambda x: x, self.value)  # shallow copy to prevent mutation of value
+        value = self.value  # shallow copy to prevent mutation of value
 
         if not isinstance(index, NonePlaceholder):
             value = value[index]
 
         return value
-
-    def set_value(self, value: T, *, index: Any = DUMMY) -> None:
-        value = jax.tree.map(lambda x: x, value)  # shallow copy to prevent mutation of value
-
-        if isinstance(index, NonePlaceholder):
-            self.value = value
-            return
-
-        current = self.value
-
-        if isinstance(current, jax.Array):
-            self.value = cast(T, current.at[index].set(value))
-            return
-
-        cast(Any, current)[index] = value
 
     def clone(self):
         signal_type = type(self)
@@ -162,9 +135,6 @@ class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
 
         op_func.__name__ = name
         return op_func
-
-    @overload
-    def __getitem__(self: Signal[jax.Array], key) -> jax.Array: ...
 
     @overload
     def __getitem__(self: Signal[dict[Any, A]], key) -> A: ...
@@ -258,6 +228,10 @@ _SIGNAL_READS: contextvars.ContextVar[_SignalReadState | None] = contextvars.Con
 _SIGNAL_USES: contextvars.ContextVar[Mapping[uuid.UUID, Any] | None] = contextvars.ContextVar(
     "_SIGNAL_USES", default=None
 )
+
+
+def _is_signal_in_context() -> bool:
+    return _SIGNAL_READS.get() is not None or _SIGNAL_USES.get() is not None
 
 
 @contextlib.contextmanager

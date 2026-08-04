@@ -14,9 +14,9 @@ class ResultWrapper:
     trajectories: dict[uuid.UUID, Any]
 
     def __getitem__(self, signal: Signal):
-        if signal._uuid not in self.trajectories:
+        if signal.id not in self.trajectories:
             raise KeyError(f"signal {signal.name} not found in trajectory")
-        return self.trajectories[signal._uuid]
+        return self.trajectories[signal.id]
 
 
 jax.tree_util.register_dataclass(ResultWrapper)
@@ -38,10 +38,10 @@ class Euler:
         State derivatives are paired with states by tuple position.
         """
         initial_values = system.initial_values()
-        state_ids = system._signal_ids_by_kind.get(SignalKind.STATE, ())
-        derivative_ids = system._signal_ids_by_kind.get(SignalKind.STATE_DERIVATIVE, ())
 
-        noise_ids = system._signal_ids_by_kind.get(SignalKind.NOISE, ())
+        state_ids = system.get_signal_by_kind(SignalKind.STATE)
+        derivative_ids = system.get_signal_by_kind(SignalKind.STATE_DERIVATIVE)
+        noise_ids = system.get_signal_by_kind(SignalKind.NOISE)
 
         # TODO: this check should happen at system compilation time
         if len(derivative_ids) != len(state_ids):
@@ -60,7 +60,7 @@ class Euler:
             states, key = carry
 
             key, rng = jax.random.split(key)
-            noise_values = {id: jax.random.normal(rng, shape=initial_values[id].shape) for id in noise_ids}
+            noise_values = {id: jax.random.normal(rng, shape=jax.numpy.shape(initial_values[id])) for id in noise_ids}
 
             results_by_id = system.evaluate({**fixed_values, **noise_values, **states})
 
@@ -81,7 +81,7 @@ class Euler:
             length=n_steps,
         )
 
-        noise_values = {id: jax.random.normal(rng_key, shape=initial_values[id].shape) for id in noise_ids}
+        noise_values = {id: jax.random.normal(rng_key, shape=jax.numpy.shape(initial_values[id])) for id in noise_ids}
 
         final_result = system.evaluate({**fixed_values, **noise_values, **final_states})
 

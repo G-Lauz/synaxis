@@ -21,6 +21,7 @@ from .signals import (
     SignalKind,
     StateDerivative,
     _evaluate_signals,
+    _is_signal_in_context,
     _trace_signals,
 )
 
@@ -66,6 +67,16 @@ class System(ComponentDescriptor, abc.ABC):
         owner_id = None if self.owner_id is None else self.owner_id.hex[:5]
         owner = f'{self.owner_cls}("id={owner_id}")' if self.owner_cls is not None else "None"
         return f'System(name="{self.name}", id="{self.id.hex[:5]}, owner={owner}")'
+
+    def __getattribute__(self, name: str, /) -> Any:
+        value = super().__getattribute__(name)
+
+        WHITE_LIST = (SignalKind.INPUT, SignalKind.PARAM, SignalKind.STATE, SignalKind.NOISE)
+
+        if isinstance(value, Signal) and value.signal_kind in WHITE_LIST and _is_signal_in_context():
+            return value.get_value()
+
+        return value
 
     def __setattr__(self, name: str, value: object) -> None:
         if isinstance(value, ComponentDescriptor):
@@ -414,6 +425,10 @@ class CompiledSystem:
                 self._initial_values = initial_values
 
         return wrapped
+
+    def get_signal_by_kind(self, kind: SignalKind) -> tuple[uuid.UUID, ...]:
+        """Return a tuple of signal nodes of the specified kind."""
+        return self._signal_ids_by_kind.get(kind, ())
 
     def evaluate(self, source_values: Mapping[uuid.UUID, Any]) -> dict[uuid.UUID, Any]:
         """Evaluate one graph pass and return values for every signal."""
