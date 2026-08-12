@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Self
 from .context import is_signal_in_context, read_signal
 from .declaration import Declaration
 from .equations import Equation
-from .signals import Signal, _SourceSignal
+from .signals import Signal
 
 if TYPE_CHECKING:
     from .runtime import CompiledSystem
@@ -41,7 +41,11 @@ class System(Declaration, abc.ABC):
 
     def __getattribute__(self, name: str, /) -> Any:
         value = super().__getattribute__(name)
-        if isinstance(value, _SourceSignal) and is_signal_in_context():
+        # TODO: validate if we allow every signal (Signal) to be read in a context, or if we should only allow source
+        # signals (_SourceSignal) to be read in a context.
+        # Allowing all signal including output signals allows to avoid some manual connections and directly refer to output within equation definition. But it lost the given constraint create by the connection. It also remove
+        # duplicated signals in the graph (e.g. plant.y -> controller.y are the same signal)
+        if isinstance(value, Signal) and is_signal_in_context():
             return read_signal(value)
         return value
 

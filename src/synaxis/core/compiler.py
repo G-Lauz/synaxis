@@ -105,7 +105,7 @@ def _flatten(system: System, *, path: tuple[str, ...] = ()):
         connection_path = path + (f"{connection.src.name}->{connection.tgt.name}",)
         connections.add((connection, connection_path))
 
-    for subsystem, subsystem_path in subsystems:
+    for subsystem, subsystem_path in subsystems.copy():
         sub_subsystems, sub_signals, sub_equations, sub_connections = _flatten(subsystem, path=subsystem_path)
 
         subsystems.update(sub_subsystems)

@@ -3,70 +3,24 @@ import matplotlib.pyplot as plt
 import numpy
 
 from synaxis.blocks import WhiteNoise
-from synaxis.core import (
-    Input,
-    Noise,
-    Output,
-    Param,
-    State,
-    StateDerivative,
-    System,
-)
+from synaxis.controller import ProportionalController
+from synaxis.core import Input, Noise, Output, System
+from synaxis.dynamics import LTISystem
 from synaxis.solvers import Euler
-from synaxis.systems import DynamicSystem, StaticSystem
-
-
-def bmm(matrix, vector) -> jax.Array:
-    """
-    Batch matrix-vector multiplication.
-    """
-    jnp_matrix = jax.numpy.asarray(matrix)
-    jnp_vector = jax.numpy.asarray(vector)
-
-    if jnp_matrix.ndim == 0:
-        jnp_matrix = jnp_matrix[None, None]
-
-    if jnp_vector.ndim == 0:
-        jnp_vector = jnp_vector[None]
-
-    return jax.numpy.matmul(jnp_matrix, jnp_vector[..., None])[..., 0]
-
-
-class LTISystem(DynamicSystem):
-    A = Param()
-    B = Param()
-    C = Param()
-    D = Param()
-
-    x = State()
-    dx = StateDerivative()
-
-    u = Input()
-    y = Output()
-
-    def compute_outputs(self):
-        return bmm(self.C, self.x)  # + bmm(self.D, self.u)
-
-    def compute_dynamics(self):
-        return bmm(self.A, self.x) + bmm(self.B, self.u)
+from synaxis.systems import StaticSystem
 
 
 class NoisyPropController(StaticSystem):
-    kp = Param()
-
     z = Noise()
-
-    observation = Input()
-    reference = Input()
-
+    proportional = ProportionalController()
     u = Output()
 
     def compute_outputs(self):
-        return bmm(-self.kp, self.observation - self.reference) + self.z
+        return self.proportional.u + self.z
 
 
 class ClosedLoopSystem(System):
-    plant = LTISystem()
+    plant = LTISystem(direct_feedthrough=False)
     controller = NoisyPropController()
 
     reference = Input()
@@ -74,9 +28,9 @@ class ClosedLoopSystem(System):
     def __init__(self) -> None:
         super().__init__(name="closed-loop model")
 
-        self.connect(self.reference, self.controller.reference)
+        self.connect(self.reference, self.controller.proportional.reference)
         self.connect(self.controller.u, self.plant.u)
-        self.connect(self.plant.y, self.controller.observation)
+        self.connect(self.plant.y, self.controller.proportional.observation)
 
 
 def main():
@@ -113,7 +67,7 @@ def main():
     compiled_model[model.plant.C] = 1.0
     compiled_model[model.plant.D] = 0.0
 
-    compiled_model[model.controller.kp] = 2.0
+    compiled_model[model.controller.proportional.kp] = 2.0
 
     reference = 5.0
     compiled_model[model.reference] = reference

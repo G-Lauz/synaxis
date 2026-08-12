@@ -2,74 +2,18 @@ import jax
 import matplotlib.pyplot as plt
 import numpy
 
-from synaxis.core import (
-    Input,
-    Output,
-    Param,
-    State,
-    StateDerivative,
-    System,
-)
+from synaxis.controller import ProportionalController
+from synaxis.core import Input, System
 from synaxis.diagram import to_dot
+from synaxis.dynamics import LTISystem
 from synaxis.solvers import Euler
-from synaxis.systems import DynamicSystem, StaticSystem
-
-
-def bmm(matrix, vector) -> jax.Array:
-    """
-    Batch matrix-vector multiplication.
-    """
-    jnp_matrix = jax.numpy.asarray(matrix)
-    jnp_vector = jax.numpy.asarray(vector)
-
-    if jnp_matrix.ndim == 0:
-        jnp_matrix = jnp_matrix[None, None]
-
-    if jnp_vector.ndim == 0:
-        jnp_vector = jnp_vector[None]
-
-    return jax.numpy.matmul(jnp_matrix, jnp_vector[..., None])[..., 0]
-
-
-class LTISystem(DynamicSystem):
-    A = Param()
-    B = Param()
-    C = Param()
-    D = Param()
-
-    x = State()
-    dx = StateDerivative()
-
-    u = Input()
-    y = Output()
-
-    def compute_outputs(self):
-        return bmm(self.C, self.x)  # + bmm(self.D, self.u)
-
-    def compute_dynamics(self):
-        return bmm(self.A, self.x) + bmm(self.B, self.u)
-
-
-class ProportionalController(StaticSystem):
-    def __init__(self, name=None) -> None:
-        name = name if name is not None else "proportional controller"
-        super().__init__(name=name)
-
-        self.kp = Param()
-
-        self.u = Output()
-        self.observation = Input()
-        self.reference = Input()
-
-    def compute_outputs(self):
-        return bmm(-self.kp, self.observation - self.reference)
 
 
 class ClosedLoopModel(System):
-    plant = LTISystem()
+    plant = LTISystem(name="plant", direct_feedthrough=False)
 
     def __init__(self, name=None) -> None:
-        name = name if name is not None else "closed-loop model"
+        name = name if name is not None else "closed_loop_model"
         super().__init__(name=name)
 
         self.reference = Input()
