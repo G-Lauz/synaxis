@@ -3,18 +3,15 @@ from __future__ import annotations
 import abc
 import dataclasses
 import uuid
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Self
 
-from .compiler import compile
 from .context import is_signal_in_context, read_signal
 from .declaration import Declaration
-from .equations import Equation, equation
-from .runtime import CompiledSystem
-from .signals import Signal, SignalType, StateDerivative, _SourceSignal
+from .equations import Equation
+from .signals import Signal, _SourceSignal
 
 if TYPE_CHECKING:
-    from .signals import Output
+    from .runtime import CompiledSystem
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,6 +59,8 @@ class System(Declaration, abc.ABC):
         self._connections.add(Connection(src=source, tgt=target))
 
     def compile(self, *, allow_algebraic_loop: bool = False) -> CompiledSystem:
+        from .compiler import compile
+
         return compile(self, allow_algebraic_loop=allow_algebraic_loop)
 
     def components(self):
