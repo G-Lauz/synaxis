@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from synaxis.core import Noise, Output, Param, StaticSystem
+from synaxis.core import Noise, Output, Param
+from synaxis.systems import StaticSystem
 
 
 class Constant(StaticSystem):

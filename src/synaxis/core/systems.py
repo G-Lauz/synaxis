@@ -131,25 +131,3 @@ class System(Declaration, abc.ABC):
             subsystem.pretty_print(indent=indent + 1)
 
         print(f"{'  ' * indent}-----------------------------------------------------------------\n")
-
-
-class StaticSystem(System, abc.ABC):
-    @equation(name="compute_outputs")
-    def _compute_outputs(self) -> Output[SignalType] | Mapping[Output[SignalType], SignalType]:
-        return self.compute_outputs()
-
-    @abc.abstractmethod
-    def compute_outputs(self) -> Any:
-        pass
-
-
-class DynamicSystem(StaticSystem, abc.ABC):
-    # TODO: Implicit state derivative registration is disabled for now, because it couldn't be discovered statically by
-    # the IDE typing engine. Instead, we can rely on the user to explicitly define state derivatives as needed.
-    @equation(name="compute_dynamics", otype=StateDerivative)
-    def _compute_dynamics(self) -> StateDerivative[SignalType] | Mapping[StateDerivative[SignalType], SignalType]:
-        return self.compute_dynamics()
-
-    @abc.abstractmethod
-    def compute_dynamics(self) -> Any:
-        pass

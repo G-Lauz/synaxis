@@ -4,17 +4,16 @@ import numpy
 
 from synaxis.blocks import WhiteNoise
 from synaxis.core import (
-    DynamicSystem,
     Input,
     Noise,
     Output,
     Param,
     State,
     StateDerivative,
-    StaticSystem,
     System,
 )
 from synaxis.solvers import Euler
+from synaxis.systems import DynamicSystem, StaticSystem
 
 
 def bmm(matrix, vector) -> jax.Array:

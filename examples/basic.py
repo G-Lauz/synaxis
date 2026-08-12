@@ -3,17 +3,16 @@ import matplotlib.pyplot as plt
 import numpy
 
 from synaxis.core import (
-    DynamicSystem,
     Input,
     Output,
     Param,
     State,
     StateDerivative,
-    StaticSystem,
     System,
 )
 from synaxis.diagram import to_dot
 from synaxis.solvers import Euler
+from synaxis.systems import DynamicSystem, StaticSystem
 
 
 def bmm(matrix, vector) -> jax.Array:

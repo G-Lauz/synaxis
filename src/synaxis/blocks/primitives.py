@@ -1,14 +1,7 @@
 from __future__ import annotations
 
-from synaxis.core import (
-    DynamicSystem,
-    Input,
-    Output,
-    Param,
-    State,
-    StateDerivative,
-    StaticSystem,
-)
+from synaxis.core import Input, Output, Param, State, StateDerivative
+from synaxis.systems import DynamicSystem, StaticSystem
 
 
 class Gain(StaticSystem):
