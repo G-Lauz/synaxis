@@ -17,6 +17,7 @@ jobs:
     outputs:
       tag_name: ${{ steps.generate_version_output.outputs.tag_name }}
       package_version: ${{ steps.generate_version_output.outputs.short_version }}
+      release_required: ${{ steps.release_decision.outputs.required }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -30,7 +31,7 @@ jobs:
           major_pattern: "(MAJOR)"
           minor_pattern: "(MINOR)"
           version_format: "${major}.${minor}.${patch}-pre${increment}"
-          bump_each_commit: false
+          bump_each_commit: true
           bump_each_commit_patch_pattern: "(PATCH)"
 
       - name: Generate version number
@@ -38,7 +39,17 @@ jobs:
         run: |
           echo "version=${{ steps.semantic_version.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "short_version=${{ steps.semantic_version.outputs.major }}.${{ steps.semantic_version.outputs.minor }}.${{ steps.semantic_version.outputs.patch }}" >> "$GITHUB_OUTPUT"
-          echo "tag_name=v${{ steps.semantic_version.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${{ steps.semantic_version.outputs.version_tag }}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Check whether the version has already been released
+        id: release_decision
+        run: |
+          if git rev-parse -q --verify "refs/tags/${{ steps.semantic_version.outputs.version_tag }}" > /dev/null; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          fi
         shell: bash
 
       - name: Display version
@@ -46,6 +57,7 @@ jobs:
         shell: bash
 
       - name: Create release
+        if: steps.release_decision.outputs.required == 'true'
         uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -58,6 +70,7 @@ jobs:
 
   upload:
     needs: release
+    if: needs.release.outputs.release_required == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
