@@ -2,6 +2,11 @@ name: Publish to PyPI
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Stable release tag to publish
+        required: true
+        type: string
 
 jobs:
   lint-and-test:
@@ -14,7 +19,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.release_tag }}
           persist-credentials: false
+
+      - name: Set package version
+        run: |
+          tag="${{ inputs.release_tag }}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release_tag must use the vMAJOR.MINOR.PATCH format" >&2
+            exit 1
+          fi
+          printf '%s\n' "${tag#v}" > VERSION
+        shell: bash
 
       - name: Set up Python
         uses: actions/setup-python@v6
