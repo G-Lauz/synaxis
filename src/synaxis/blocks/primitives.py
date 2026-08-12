@@ -19,7 +19,7 @@ class Gain(StaticSystem):
 
     def __init__(self, name: str | None = None):
         name = name if name is not None else "gain"
-        super().__init__(name)
+        super().__init__(name=name)
 
     def compute_outputs(self):
         return self.k * self.u
@@ -32,7 +32,7 @@ class Sum(StaticSystem):
 
     def __init__(self, name: str | None = None):
         name = name if name is not None else "sum"
-        super().__init__(name)
+        super().__init__(name=name)
 
     def compute_outputs(self):
         return self.a + self.b
@@ -47,7 +47,7 @@ class Integrator(DynamicSystem):
 
     def __init__(self, name: str | None = None):
         name = name if name is not None else "integrator"
-        super().__init__(name)
+        super().__init__(name=name)
 
     def compute_outputs(self):
         return self.x

@@ -18,6 +18,9 @@ classifiers = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+jax = ["jax>=0.10"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["synaxis*"]

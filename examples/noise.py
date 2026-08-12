@@ -14,13 +14,10 @@ from synaxis.core import (
     StaticSystem,
     System,
 )
-from synaxis.solver import Euler
+from synaxis.solvers import Euler
 
 
-def bmm(
-    matrix: jax.typing.ArrayLike,
-    vector: jax.typing.ArrayLike,
-) -> jax.Array:
+def bmm(matrix, vector) -> jax.Array:
     """
     Batch matrix-vector multiplication.
     """
@@ -76,7 +73,7 @@ class ClosedLoopSystem(System):
     reference = Input()
 
     def __init__(self) -> None:
-        super().__init__("closed-loop model")
+        super().__init__(name="closed-loop model")
 
         self.connect(self.reference, self.controller.reference)
         self.connect(self.controller.u, self.plant.u)

@@ -1,59 +1,128 @@
-from __future__ import annotations
+import functools
+from collections.abc import Callable
+from typing import Generic, Self, TypeVar, cast, overload
 
-from typing import (
-    Any,
-    Callable,
-    Concatenate,
-    Generic,
-    ParamSpec,
-    Protocol,
-    TypeVar,
-    cast,
-)
-
-from .components import ComponentDescriptor, ComponentKind
+from .declaration import Declaration
+from .signals import Output
 
 OwnerType = TypeVar("OwnerType")
-P = ParamSpec("P")  # parameters
-R = TypeVar("R")  # return type
-R_co = TypeVar("R_co", covariant=True)
+R = TypeVar("R")  # method return type # TODO: we already know that by design the return should either be an output
+# signal or a mapping of output signals, we should enforce that in the type hinting.
 
 
-class EquationProtocol(Protocol[P, R_co]):
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R_co: ...
+class Equation(Declaration, Generic[OwnerType, R]):
+    name: str
 
+    _function: Callable[[OwnerType], R]
+    _bound_function: Callable[[], R] | None
 
-class Equation(ComponentDescriptor, Generic[OwnerType, P, R]):
-    kind = ComponentKind.EQUATION
+    _output_type: type
 
-    def __init__(self, func: Callable[Concatenate[OwnerType, P], R]) -> None:
-        self.func = func
+    _isabstractmethod: bool
 
-    def __call__(self, *args, **kwargs):
-        return self.func(*args, **kwargs)
+    _attribute_name: str | None  # The name of the attribute in the class that owns this declaration
+    _declared_name: str | None  # The name of the declaration as declared by the user, if any.
 
-    def __repr__(self) -> str:
-        owner_id = None if self.owner_id is None else self.owner_id.hex[:5]
-        return f'Equation(name="{self.name}", id="{self._uuid.hex[:5]}", owner={self.owner_cls}("id={owner_id}"))'
+    def __init__(self, function: Callable[[OwnerType], R], *, name: str | None = None, otype: type = Output) -> None:
+        """
+        Args:
+            function: The function that defines the equation.
+            name: The name of the equation, if any.
+            otype: The output type of the equation, if any. Defaults to Output.
+        """
+        self._declared_name = name
 
-    def clone(self):
+        # the unbound function as defined in the class, before it is bound to an instance of the class.
+        self._function = function
+        self._isabstractmethod = bool(getattr(function, "__isabstractmethod__", False))
+
+        self._bound_function = None
+
+        self._output_type = otype
+
+    @property
+    def function(self) -> Callable[[], R]:
+        if self._bound_function is None:
+            raise RuntimeError("equation is not bound to an instance")
+        return self._bound_function
+
+    @property
+    def output_type(self) -> type:
+        return self._output_type
+
+    def clone(self) -> Self:
         equation_type = type(self)
-        return equation_type(self.func)
+        clone = equation_type(self._function, name=self.name, otype=self.output_type)
+        clone._isabstractmethod = self._isabstractmethod
+        clone._bound_function = self._bound_function
+        return clone
 
-    def __get__(self, instance: object | None, owner: type | None = None) -> Any:
+    # ===========================================================================
+    # Keep @abc.abstractmethod working in either decorator order
+    # ===========================================================================
+    @property
+    def __isabstractmethod__(self) -> bool:
+        return self._isabstractmethod
+
+    @__isabstractmethod__.setter
+    def __isabstractmethod__(self, value: bool) -> None:
+        self._isabstractmethod = value
+
+    # ===========================================================================
+    # Descriptor protocol methods
+    # ===========================================================================
+    def __get__(self, instance: object | None, owner: type | None = None) -> Self:
         if instance is None:
-            return self
+            return self  # Return the descriptor itself when accessed through the class (MyClass.equation)
 
-        # Materialize the per-instance descriptor object via ComponentDescriptor so identity
-        # discovery cab still find owned Equation instances.
-        equation_obj = super().__get__(instance, owner)
-        owner_instance = cast(OwnerType, instance)
+        instance_equation = super().__get__(instance, owner)
 
-        def bound(*args: P.args, **kwargs: P.kwargs) -> R:
-            return equation_obj.func(owner_instance, *args, **kwargs)
+        # we need to cast the instance to the correct type, because of the overloading of the generic __get__ method.
+        # only really useful for type hinting.
+        casted_instance = cast(OwnerType, instance)
 
-        return cast(EquationProtocol[P, R], bound)
+        # bind the function to the instance, so that it can access the instance's attributes and methods.
+        instance_equation._bound_function = functools.partial(self._function, casted_instance)
+
+        return instance_equation
 
 
-def equation(func: Callable[Concatenate[OwnerType, P], R]) -> Equation[OwnerType, P, R]:
-    return Equation(func)
+@overload
+def equation(
+    function: Callable[[OwnerType], R],
+    /,
+    *,
+    name: str | None = None,
+    otype: type = Output,
+) -> Equation[OwnerType, R]: ...
+
+
+@overload
+def equation(
+    function: None = None,
+    /,
+    *,
+    name: str | None = None,
+    otype: type = Output,
+) -> Callable[
+    [Callable[[OwnerType], R]],
+    Equation[OwnerType, R],
+]: ...
+
+
+def equation(
+    function: Callable[[OwnerType], R] | None = None, /, *, name: str | None = None, otype: type = Output
+) -> Callable[[Callable[[OwnerType], R]], Equation[OwnerType, R]] | Equation[OwnerType, R]:
+    """
+    Decorator to mark a method as an equation in a System.
+
+    Args:
+        function: The function that defines the equation.
+        name: The name of the equation, if any.
+        otype: The output type of the equation, if any. This is used to validate the return type of the function.
+    """
+
+    def decorate(func: Callable[[OwnerType], R]) -> Equation[OwnerType, R]:
+        return Equation(func, name=name, otype=otype)
+
+    return decorate if function is None else decorate(function)

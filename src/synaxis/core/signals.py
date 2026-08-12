@@ -1,109 +1,118 @@
 from __future__ import annotations
 
-import abc
-import contextlib
-import contextvars
-import enum
-import uuid
-from collections.abc import Callable, Iterator, Mapping
-from typing import Any, Generic, TypeVar, Union, cast, overload
+from collections.abc import Callable
+from typing import Any, Generic, Self, TypeVar, cast, overload
 
-from .components import ComponentDescriptor, ComponentKind
+from .declaration import Declaration
 
-T = TypeVar("T")
-A = TypeVar("A")
+SignalType = TypeVar("SignalType")
+ContainerType = TypeVar("ContainerType")
 
 
-class NonePlaceholder:
-    """
-    Replace None value when None is usefull
-    """
+_NonePlaceholder = object()
 
 
-DUMMY = NonePlaceholder()
-
-
-class SignalKind(enum.Enum):
-    PARAM = enum.auto()
-    STATE = enum.auto()
-    STATE_DERIVATIVE = enum.auto()
-    INPUT = enum.auto()
-    OUTPUT = enum.auto()
-    NOISE = enum.auto()
-
-
-class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
-    kind = ComponentKind.SIGNAL
-    signal_kind: SignalKind
-    value: T
-    dim: int
-    lower_bounds: Any | None = None
-    upper_bounds: Any | None = None
-    nominal_value: T | None = None
+class Signal(Declaration, Generic[SignalType]):
+    _nominal_value: SignalType | None
+    _lower_bounds: SignalType | None
+    _upper_bounds: SignalType | None
 
     def __init__(
         self,
         *,
         name: str | None = None,
-        nominal_value: T | None = None,
-        lower_bounds: Any | None = None,
-        upper_bounds: Any | None = None,
+        nominal_value: SignalType | None = None,
+        lower_bounds: SignalType | None = None,
+        upper_bounds: SignalType | None = None,
     ):
-        self._user_defined_name = name
+        super().__init__(name=name)
 
-        self.nominal_value = nominal_value
-        # TODO: handle case where value is not a jax array (e.g. list, float, etc.)
-        self.value = nominal_value if nominal_value is not None else cast(T, 0.0)
+        self._nominal_value = nominal_value
+        self._lower_bounds = lower_bounds
+        self._upper_bounds = upper_bounds
 
-        if nominal_value is not None:
-            self.dim = 1  # TODO
+    @property
+    def nominal_value(self) -> SignalType | None:
+        return self._nominal_value
 
-        self.lower_bounds = lower_bounds
-        self.upper_bounds = upper_bounds
+    @property
+    def lower_bounds(self) -> SignalType | None:
+        return self._lower_bounds
 
-    def __repr__(self) -> str:
-        owner_id = None if self.owner_id is None else self.owner_id.hex[:5]
-        return f'Signal(name="{self.name}", id="{self._uuid.hex[:5]}", owner={self.owner_cls}("id={owner_id}"), value={self.value})'
+    @property
+    def upper_bounds(self) -> SignalType | None:
+        return self._upper_bounds
 
-    def __getattribute__(self, name: str) -> Any:
-        # Intercept signal value access to trace reads if within a _trace_signals context
-        if name == "value":
-            signal_reads = _SIGNAL_READS.get()
-            if signal_reads is not None:
-                traced, seen_ids = signal_reads
-                if self._uuid not in seen_ids:
-                    traced.append(self)
-                    seen_ids.add(self._uuid)
-
-            signal_values = _SIGNAL_USES.get()
-            if signal_values is not None:
-                return signal_values[self._uuid]
-
-        return super().__getattribute__(name)
-
-    def get_value(self, *, index: Any = DUMMY) -> T:
-        value = self.value  # shallow copy to prevent mutation of value
-
-        if not isinstance(index, NonePlaceholder):
-            value = value[index]
-
-        return value
-
-    def clone(self):
+    def clone(self) -> Self:
         signal_type = type(self)
         return signal_type(
-            name=self.name,
-            nominal_value=self.nominal_value,
-            lower_bounds=self.lower_bounds,
-            upper_bounds=self.upper_bounds,
+            name=self._declared_name,
+            nominal_value=self._nominal_value,
+            lower_bounds=self._lower_bounds,
+            upper_bounds=self._upper_bounds,
         )
 
-    # =================================================================================
-    # Proxy methods
-    # =================================================================================
+    def get_value(self, *, index: Any = _NonePlaceholder) -> SignalType:
+        """
+        Signal doesn't hold any value, it is just a declaration used for compilation.
+        However, a value is required for the signal to be used in equations.
+        Therefore, we return the nominal value if it is defined, otherwise we return 0.
+        """
+        value = self._nominal_value if self._nominal_value is not None else cast(SignalType, 0)
+
+        if index is not _NonePlaceholder:
+            return value[index]
+        return value
+
+    # ===========================================================================
+    # Python array API standard
+    # ===========================================================================
+    def __array_namespace__(self, *, api_version: str | None = None) -> Any:
+        namespace = getattr(self.get_value(), "__array_namespace__", None)
+        if namespace is None:
+            raise TypeError(f"{type(self.get_value()).__name__} has no array namespace")
+        return namespace(api_version=api_version)
+
+    def __array_ufunc__(
+        self,
+        ufunc: Any,
+        method: str,
+        *inputs: Any,
+        **kwargs: Any,
+    ) -> Any:
+        return getattr(ufunc, method)(
+            *(_unwrap(item) for item in inputs),
+            **_unwrap_tree(kwargs),
+        )
+
+    def __array_function__(
+        self,
+        function: Callable[..., Any],
+        types: tuple[type, ...],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Any:
+        del types
+        return function(*_unwrap_tree(args), **_unwrap_tree(kwargs))
+
+    # ===========================================================================
+    # Proxy methods to allow the signal to be used as a value directly
+    # ===========================================================================
+
+    @overload
+    def __getitem__(self: Signal[dict[Any, ContainerType]], key: Any) -> ContainerType: ...
+
+    @overload
+    def __getitem__(self: Signal[list[ContainerType]], key: int) -> ContainerType: ...
+
+    @overload
+    def __getitem__(self: Signal[tuple[ContainerType, ...]], key: int) -> ContainerType: ...
+
+    def __getitem__(self, key: Any) -> Any:
+        return self.get_value(index=key)
 
     @staticmethod
-    def _operator_on_value(name: str) -> Callable[[Signal[T], Any], T]:
+    def _operator_on_value(name: str) -> Callable[[Signal[SignalType], Any], SignalType]:
         """
         Translate operator function on the Signal object into operation on Signal.value
 
@@ -135,21 +144,6 @@ class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
 
         op_func.__name__ = name
         return op_func
-
-    @overload
-    def __getitem__(self: Signal[dict[Any, A]], key) -> A: ...
-
-    @overload
-    def __getitem__(self: Signal[list[A]], key: int) -> A: ...
-
-    @overload
-    def __getitem__(self: Signal[tuple[A, ...]], key: int) -> A: ...
-
-    @overload
-    def __getitem__(self, key) -> Any: ...
-
-    def __getitem__(self, key) -> Any:
-        return self.get_value(index=key)
 
     __add__ = _operator_on_value("__add__")
     __sub__ = _operator_on_value("__sub__")
@@ -191,63 +185,121 @@ class Signal(ComponentDescriptor, abc.ABC, Generic[T]):
     __ceil__ = _unary_operator_on_value("__ceil__")
 
 
-class Param(Signal[T]):
-    signal_kind: SignalKind = SignalKind.PARAM
+def _unwrap(value: Any) -> Any:
+    return value.get_value() if isinstance(value, Signal) else value
 
 
-class State(Signal[T]):
-    signal_kind: SignalKind = SignalKind.STATE
+def _unwrap_tree(value: Any) -> Any:
+    """Unwrap signals nested in the containers used by NumPy arguments."""
+    if isinstance(value, Signal):
+        return value.get_value()
+    if isinstance(value, tuple):
+        return tuple(_unwrap_tree(item) for item in value)
+    if isinstance(value, list):
+        return [_unwrap_tree(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _unwrap_tree(item) for key, item in value.items()}
+    return value
 
 
-class StateDerivative(Signal[T]):
-    signal_kind: SignalKind = SignalKind.STATE_DERIVATIVE
+class _SourceSignal(Signal[SignalType]):
+    """
+    A source signal is a signal that can be used to compute a system equations.
+
+    It is used here as a namespace to distinguish signals via inheritance with `isinstance(obj, _SourceSignal)`.
+    """
+
+
+class _OutputSignal(Signal[SignalType]):
+    """
+    An output signal is a signal that can be computed by a system equations.
+
+    It is used here as a namespace to distinguish signals via inheritance with `isinstance(obj, _OutputSignal)`.
+    """
+
+
+class Param(_SourceSignal[SignalType]):
+    pass
+
+
+class Input(_SourceSignal[SignalType]):
+    pass
+
+
+class Output(_OutputSignal[SignalType]):
+    pass
+
+
+class Noise(_SourceSignal[SignalType]):
+    pass
+
+
+class State(_SourceSignal[SignalType]):
+    pass
+
+
+class StateDerivative(_OutputSignal[SignalType]):
+    """
+    State derivative is a special kind of signal since it is paired to a state signal.
+    """
+
+    def __init__(self, *, of: State[SignalType] | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+        self._state = of
+        self._state_attribute_name: str | None = None
+
+    @property
+    def state(self) -> State[SignalType] | None:
+        return self._state
 
     @classmethod
-    def from_state(cls, state: State[T]) -> StateDerivative[T]:
-        return cls(name=f"d{state.name}")
+    def from_state(cls, state: State[SignalType]) -> Self:
+        """
+        Create a state derivative signal from a state signal.
+        """
+        return cls(of=state, name=f"d{state.name}")
 
+    def clone(self) -> Self:
+        clone = super().clone()
+        clone._state = self._state
+        clone._state_attribute_name = self._state_attribute_name
+        return clone
 
-class Input(Signal[T]):
-    signal_kind: SignalKind = SignalKind.INPUT
+    # ===========================================================================
+    # Descriptor protocol methods
+    # ===========================================================================
+    def __set_name__(self, owner: type, name: str) -> None:
+        super().__set_name__(owner, name)
 
+        if self._state is None or self._state._attribute_name is None:
+            return  # The state signal is not yet bound to a class attribute
 
-class Output(Signal[T]):
-    signal_kind: SignalKind = SignalKind.OUTPUT
+        if getattr(owner, self._state._attribute_name, None) is self._state:
+            # The state signal is bound to a class attribute, so we can check for the relationship
+            # we store the attribute name of the state signal for later use in the __get__ method to retrieve the
+            # instance-level state signal
+            self._state_attribute_name = self._state._attribute_name
+            self._state = None  # clear the reference to the state signal because it is a class-level declaration
 
+    @overload
+    def __get__(self, instance: None, owner: type | None = None) -> Self: ...
 
-class Noise(Signal[T]):
-    signal_kind: SignalKind = SignalKind.NOISE
+    @overload
+    def __get__(self, instance: object, owner: type | None = None) -> Self: ...
 
+    def __get__(self, instance: object | None, owner: type | None = None) -> Self:
+        derivative = super().__get__(instance, owner)
 
-# tracing and evaluating signals
-SignalLike = Union[T, Signal[T]]
+        if instance is None or derivative._state_attribute_name is None:
+            return derivative  # Return the descriptor itself when accessed through the class (MyClass.signal)
 
+        # Assign the instance-level state signal to the derivative signal based on the attribute name stored earlier in
+        # __set_name__
+        state_instance = getattr(type(instance), derivative._state_attribute_name, None)
+        if isinstance(state_instance, State):
+            state = state_instance.__get__(instance, type(instance))
+            if isinstance(state, State):
+                derivative._state = state
 
-_SignalReadState = tuple[list[Signal[Any]], set[uuid.UUID]]
-_SIGNAL_READS: contextvars.ContextVar[_SignalReadState | None] = contextvars.ContextVar("_SIGNAL_READS", default=None)
-_SIGNAL_USES: contextvars.ContextVar[Mapping[uuid.UUID, Any] | None] = contextvars.ContextVar(
-    "_SIGNAL_USES", default=None
-)
-
-
-def _is_signal_in_context() -> bool:
-    return _SIGNAL_READS.get() is not None or _SIGNAL_USES.get() is not None
-
-
-@contextlib.contextmanager
-def _trace_signals() -> Iterator[list[Signal[Any]]]:
-    traced: list[Signal[Any]] = []
-    token = _SIGNAL_READS.set((traced, set()))
-    try:
-        yield traced
-    finally:
-        _SIGNAL_READS.reset(token)
-
-
-@contextlib.contextmanager
-def _evaluate_signals(values: Mapping[uuid.UUID, Any]) -> Iterator[None]:
-    token = _SIGNAL_USES.set(values)
-    try:
-        yield
-    finally:
-        _SIGNAL_USES.reset(token)
+        return derivative

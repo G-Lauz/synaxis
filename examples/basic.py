@@ -7,20 +7,16 @@ from synaxis.core import (
     Input,
     Output,
     Param,
-    SignalLike,
     State,
     StateDerivative,
     StaticSystem,
     System,
 )
 from synaxis.diagram import to_dot
-from synaxis.solver import Euler
+from synaxis.solvers import Euler
 
 
-def bmm(
-    matrix: SignalLike,
-    vector: SignalLike,
-) -> jax.Array:
+def bmm(matrix, vector) -> jax.Array:
     """
     Batch matrix-vector multiplication.
     """
@@ -58,7 +54,7 @@ class LTISystem(DynamicSystem):
 class ProportionalController(StaticSystem):
     def __init__(self, name=None) -> None:
         name = name if name is not None else "proportional controller"
-        super().__init__(name)
+        super().__init__(name=name)
 
         self.kp = Param()
 
@@ -75,7 +71,7 @@ class ClosedLoopModel(System):
 
     def __init__(self, name=None) -> None:
         name = name if name is not None else "closed-loop model"
-        super().__init__(name)
+        super().__init__(name=name)
 
         self.reference = Input()
 
@@ -90,7 +86,9 @@ def main():
     model = ClosedLoopModel()
     compiled_model = model.compile()
 
-    # dot_text = to_dot(compiled_model.graph, explicit_connection=False)
+    # model.pretty_print()
+
+    # dot_text = to_dot(compiled_model.graph, explicit_connection=True)
     # with open("closed_loop_model.dot", "w") as f:
     #     f.write(dot_text)
 
@@ -123,6 +121,7 @@ def main():
     jit_trajectory = jitted_rolout()
 
     # vmap
+    @compiled_model.vary
     def rollout_given_gain(kp):
         compiled_model[model.controller.kp] = kp
         return solver.rollout(compiled_model, n_steps=n_steps)
@@ -135,6 +134,7 @@ def main():
     print(vmap_trajectories[model.plant.x].shape)
 
     # grad
+    @compiled_model.vary
     def loss(kp):
         compiled_model[model.controller.kp] = kp
         traj = solver.rollout(compiled_model, n_steps=n_steps)

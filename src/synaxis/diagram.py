@@ -1,18 +1,18 @@
-from .core.computation_graph import (
-    BipartiteComputationGraph,
+"""Graphviz rendering for compiled computation graphs."""
+
+from .core.graph import (
+    ComputationGraph,
+    ConnectionNode,
     Node,
-    OperationKind,
-    OperationNode,
     SignalNode,
 )
-from .core.signals import SignalKind
+from .core.signals import Input, Output, Param, State, StateDerivative
 
 
-def to_dot(graph: BipartiteComputationGraph, explicit_connection: bool = True) -> str:
+def to_dot(graph: ComputationGraph, explicit_connection: bool = True) -> str:
     """Return a Graphviz DOT representation of a computation graph."""
-    connection_nodes = {
-        node for node in graph.successors if isinstance(node, OperationNode) and node.kind == OperationKind.CONNECTION
-    }
+    predecessors = graph.predecessors
+    connection_nodes = {node for node in graph.successors if isinstance(node, ConnectionNode)}
     node_ids: dict[Node, str] = {
         node: f"node_{index}"
         for index, node in enumerate(graph.successors)
@@ -31,20 +31,20 @@ def to_dot(graph: BipartiteComputationGraph, explicit_connection: bool = True) -
         style = "filled"
 
         if isinstance(node, SignalNode):
-            label = f"({node.kind.name.lower()})\n{node.path}"
+            label = f"({node.stype.__name__})\n{node.path}"
             shape = "ellipse"
             style = "filled"
             color = "#ffffff"
-            if node.kind == SignalKind.INPUT:
+            if node.stype is Input:
                 color = "#d9ead3"
-            elif node.kind == SignalKind.OUTPUT:
+            elif node.stype is Output:
                 color = "#cfe2f3"
-            elif node.kind == SignalKind.STATE:
+            elif node.stype is State:
                 color = "#fff2cc"
-            elif node.kind == SignalKind.STATE_DERIVATIVE:
+            elif node.stype is StateDerivative:
                 shape = "box"
                 style = style + ", rounded"
-            elif node.kind == SignalKind.PARAM:
+            elif node.stype is Param:
                 color = "#e6e6e6"
 
         lines.append(
@@ -53,13 +53,14 @@ def to_dot(graph: BipartiteComputationGraph, explicit_connection: bool = True) -
 
     for source, successors in graph.successors.items():
         for target in successors:
-            if not explicit_connection and (source in connection_nodes or target in connection_nodes):
+            hidden_connection = source in connection_nodes or target in connection_nodes
+            if not explicit_connection and hidden_connection:
                 continue
             lines.append(f"  {node_ids[source]} -> {node_ids[target]};")
 
     if not explicit_connection:
         for connection in connection_nodes:
-            for source in graph.predecessors[connection]:
+            for source in predecessors[connection]:
                 for target in graph.successors[connection]:
                     lines.append(f"  {node_ids[source]} -> {node_ids[target]} [style=dotted];")
 

@@ -9,7 +9,7 @@ class Constant(StaticSystem):
 
     def __init__(self, name: str | None = None):
         name = name if name is not None else "constant"
-        super().__init__(name)
+        super().__init__(name=name)
 
     def compute_outputs(self):
         return self.value
@@ -25,7 +25,7 @@ class WhiteNoise(StaticSystem):
 
     def __init__(self, name: str | None = None):
         name = name if name is not None else "white_noise"
-        super().__init__(name)
+        super().__init__(name=name)
 
     def compute_outputs(self):
         return self.mean + self.stddev * self.z
