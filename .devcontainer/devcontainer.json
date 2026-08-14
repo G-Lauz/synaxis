@@ -1,0 +1,10 @@
+{
+  "name": "synaxis",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/synaxis,type=bind",
+  "workspaceFolder": "/synaxis",
+  "remoteUser": "synaxis-dev"
+}
