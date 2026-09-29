@@ -25,6 +25,9 @@ jax = ["jax>=0.10"]
 where = ["src"]
 include = ["synaxis*"]
 
+[tool.setuptools.package-data]
+synaxis = ["py.typed"]
+
 [project.urls]
 Homepage = "https://github.com/G-Lauz/synaxis"
 Issues = "https://github.com/G-Lauz/synaxis/issues"
