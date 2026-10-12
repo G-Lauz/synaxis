@@ -1,49 +1,40 @@
 from __future__ import annotations
 
-from synaxis.core import Input, Output, Param, State, StateDerivative
-from synaxis.systems import DynamicSystem, StaticSystem
+from synaxis.core import Input, Output, Param, State, System
 
 
-class Gain(StaticSystem):
+class Gain(System):
+    default_name = "gain"
+
     u = Input()
-    y = Output()
-
     k = Param()
 
-    def __init__(self, name: str | None = None):
-        name = name if name is not None else "gain"
-        super().__init__(name=name)
-
-    def compute_outputs(self):
+    @Output
+    def y(self):
         return self.k * self.u
 
 
-class Sum(StaticSystem):
+class Sum(System):
+    default_name = "sum"
+
     a = Input()
     b = Input()
-    y = Output()
 
-    def __init__(self, name: str | None = None):
-        name = name if name is not None else "sum"
-        super().__init__(name=name)
-
-    def compute_outputs(self):
+    @Output
+    def y(self):
         return self.a + self.b
 
 
-class Integrator(DynamicSystem):
+class Integrator(System):
+    default_name = "integrator"
+
     u = Input()
-    y = Output()
-
     x = State()
-    dx = StateDerivative()
 
-    def __init__(self, name: str | None = None):
-        name = name if name is not None else "integrator"
-        super().__init__(name=name)
-
-    def compute_outputs(self):
-        return self.x
-
-    def compute_dynamics(self):
+    @x.derivative
+    def dx(self):
         return self.u
+
+    @Output
+    def y(self):
+        return self.x

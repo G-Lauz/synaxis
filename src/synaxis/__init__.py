@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from .core import (
     CompiledSystem,
     Input,
+    Internal,
     Noise,
     Output,
     Param,
@@ -12,19 +13,18 @@ from .core import (
     State,
     StateDerivative,
     System,
-    equation,
+    Time,
 )
-from .systems import DynamicSystem, StaticSystem
 
 try:
     __version__ = version("synaxis")
 except PackageNotFoundError:  # running from a source tree without an install
     __version__ = "0.0.0+unknown"
 
-_SUBMODULES = frozenset({"blocks", "controller", "core", "diagram", "dynamics", "solvers", "systems"})
+_SUBMODULES = frozenset({"blocks", "controller", "core", "diagram", "dynamics", "solvers"})
 
 if TYPE_CHECKING:
-    from . import blocks, controller, core, diagram, dynamics, solvers, systems
+    from . import blocks, controller, core, diagram, dynamics, solvers
 
 
 def __getattr__(name: str):
@@ -42,17 +42,16 @@ def __dir__() -> list[str]:
 __all__ = [
     # Signals
     "Input",
+    "Internal",
     "Noise",
     "Output",
     "Param",
     "Signal",
     "State",
     "StateDerivative",
+    "Time",
     # Systems
-    "DynamicSystem",
-    "StaticSystem",
     "System",
-    "equation",
     # Runtime
     "CompiledSystem",
     # Subpackages
@@ -62,6 +61,5 @@ __all__ = [
     "diagram",
     "dynamics",
     "solvers",
-    "systems",
     "__version__",
 ]

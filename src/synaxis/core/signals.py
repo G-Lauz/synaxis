@@ -4,7 +4,9 @@ from collections.abc import Callable
 from typing import Any, Generic, Self, TypeVar, cast, overload
 
 from .declaration import Declaration
+from .equations import Equation
 
+R = TypeVar("R")  # return type of the equation function
 SignalType = TypeVar("SignalType")
 ContainerType = TypeVar("ContainerType")
 
@@ -61,7 +63,7 @@ class Signal(Declaration, Generic[SignalType]):
         value = self._nominal_value if self._nominal_value is not None else cast(SignalType, 0)
 
         if index is not _NonePlaceholder:
-            return value[index]
+            return cast(Any, value)[index]
         return value
 
     # ===========================================================================
@@ -210,14 +212,97 @@ class _SourceSignal(Signal[SignalType]):
     """
 
 
-class _OutputSignal(Signal[SignalType]):
+class _ComputedSignal(Signal[SignalType]):
     """
-    An output signal is a signal that can be computed by a system equations.
+    An output signal is a signal that can be computed by a system equations or given by a connection.
 
-    It is used here as a namespace to distinguish signals via inheritance with `isinstance(obj, _OutputSignal)`.
+    It is used here as a namespace to distinguish signals via inheritance with `isinstance(obj, _ComputedSignal)`.
     """
 
+    _equation: Equation[SignalType] | None
+    _isabstractmethod: bool
 
+    def __init__(
+        self,
+        function: Callable[[Any], SignalType] | None = None,
+        /,
+        *,
+        name: str | None = None,
+        nominal_value: SignalType | None = None,
+        lower_bounds: SignalType | None = None,
+        upper_bounds: SignalType | None = None,
+    ) -> None:
+        super().__init__(name=name, nominal_value=nominal_value, lower_bounds=lower_bounds, upper_bounds=upper_bounds)
+
+        self._equation = None
+        self._isabstractmethod = False
+
+        if function is not None:
+            self._attach(function)
+
+    @property
+    def equation(self) -> Equation[SignalType] | None:
+        return self._equation
+
+    def _attach(self, function: Callable[[Any], SignalType]) -> Self:
+        label = getattr(function, "__name__", None) or self._declared_name or "<unnamed>"
+
+        if self._equation is not None:
+            raise TypeError(f"{type(self).__name__} {label!r} already has a defining equation")
+
+        # TODO: this guard require the user to re-declare the signal including its metadata in subclasses if the signal is declared in a base class.
+        # we may avoid this issue by using a fresh copy of the signal at decoration time (__call__)
+        if self._attribute_name is not None:
+            raise TypeError(
+                f"{type(self).__name__} {label!r} is already bound to attribute {self._attribute_name!r}; "
+                "apply the decorator before assigning the signal to a class or system"
+            )
+
+        if not callable(function):
+            raise TypeError(f"{type(self).__name__} {label!r} expects a callable, got {type(function).__name__}")
+
+        self._equation = Equation(function)
+
+        # order: @Output above @abstractmethod
+        self._isabstractmethod = bool(getattr(function, "__isabstractmethod__", False))
+
+        self.__doc__ = getattr(function, "__doc__", None)
+        return self  # TODO: why return self?
+
+    def bind_instance(self, instance: object) -> None:
+        if self._equation is not None:
+            self._equation.bind(instance)
+
+    def clone(self) -> Self:
+        function = self._equation.unbound_function if self._equation is not None else None
+
+        signal_type = type(self)
+        clone = signal_type(
+            function,
+            name=self._declared_name,
+            nominal_value=self._nominal_value,
+            lower_bounds=self._lower_bounds,
+            upper_bounds=self._upper_bounds,
+        )
+        clone._isabstractmethod = self._isabstractmethod
+        return clone
+
+    # ===========================================================================
+    # Keep @abc.abstractmethod working in either decorator order
+    # See earlier comment in _attach() that handles the case where @Output is applied above @abstractmethod
+    # ===========================================================================
+    @property
+    def __isabstractmethod__(self) -> bool:
+        return self._isabstractmethod
+
+    @__isabstractmethod__.setter
+    def __isabstractmethod__(self, value: bool) -> None:
+        self._isabstractmethod = value  # order: @abstractmethod above @Output sets it on the signal
+
+
+# ===========================================================================
+# Source Signals
+# ===========================================================================
 class Param(_SourceSignal[SignalType]):
     pass
 
@@ -226,39 +311,157 @@ class Input(_SourceSignal[SignalType]):
     pass
 
 
-class Output(_OutputSignal[SignalType]):
-    pass
-
-
 class Noise(_SourceSignal[SignalType]):
     pass
 
 
-class State(_SourceSignal[SignalType]):
+class Time(_SourceSignal[SignalType]):
     pass
 
 
-class StateDerivative(_OutputSignal[SignalType]):
+class State(_SourceSignal[SignalType]):
+    def derivative(self, function: Callable[[Any], SignalType]) -> StateDerivative[SignalType]:
+        return StateDerivative(function, of=self)
+
+
+# ===========================================================================
+# Computed Signals
+# ===========================================================================
+class Output(_ComputedSignal[SignalType]):
+    @overload
+    def __init__(
+        self: Output[R],
+        function: Callable[[Any], R],
+        /,
+        *,
+        name: str | None = None,
+        nominal_value: R | None = None,
+        lower_bounds: R | None = None,
+        upper_bounds: R | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        function: None = None,
+        /,
+        *,
+        name: str | None = None,
+        nominal_value: SignalType | None = None,
+        lower_bounds: SignalType | None = None,
+        upper_bounds: SignalType | None = None,
+    ) -> None: ...
+
+    def __init__(
+        self, function=None, /, *, name=None, nominal_value=None, lower_bounds=None, upper_bounds=None
+    ) -> None:
+        super().__init__(
+            function, name=name, nominal_value=nominal_value, lower_bounds=lower_bounds, upper_bounds=upper_bounds
+        )
+
+    def __call__(self: Output[Any], function: Callable[[Any], R]) -> Output[R]:
+        return cast("Output[R]", self._attach(function))
+
+
+class Internal(_ComputedSignal[SignalType]):
+    @overload
+    def __init__(
+        self: Internal[R],
+        function: Callable[[Any], R],
+        /,
+        *,
+        name: str | None = None,
+        nominal_value: R | None = None,
+        lower_bounds: R | None = None,
+        upper_bounds: R | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        function: None = None,
+        /,
+        *,
+        name: str | None = None,
+        nominal_value: SignalType | None = None,
+        lower_bounds: SignalType | None = None,
+        upper_bounds: SignalType | None = None,
+    ) -> None: ...
+
+    def __init__(
+        self, function=None, /, *, name=None, nominal_value=None, lower_bounds=None, upper_bounds=None
+    ) -> None:
+        super().__init__(
+            function, name=name, nominal_value=nominal_value, lower_bounds=lower_bounds, upper_bounds=upper_bounds
+        )
+
+    def __call__(self: Internal[Any], function: Callable[[Any], R]) -> Internal[R]:
+        return cast("Internal[R]", self._attach(function))
+
+    def bind_name(self, name: str) -> None:
+        # Here, an Internal signal must be defined by an equation
+        # TODO: we should refactor this in a way that will make this guard an explicit check at dectoration time, rather
+        # then delegating the responsibility to the bind_name() method, which is called at class creation time.
+        if self._equation is None:
+            raise TypeError(f"Local signal {name!r} must be defined by an equation; use `@Local` as a decorator")
+        super().bind_name(name)
+
+
+class StateDerivative(_ComputedSignal[SignalType]):
     """
     State derivative is a special kind of signal since it is paired to a state signal.
     """
 
-    def __init__(self, *, of: State[SignalType] | None = None, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+    @overload
+    def __init__(
+        self: StateDerivative[R],
+        function: Callable[[Any], R],
+        /,
+        *,
+        of: State[R] | None = None,
+        name: str | None = None,
+        nominal_value: R | None = None,
+        lower_bounds: R | None = None,
+        upper_bounds: R | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        function: None = None,
+        /,
+        *,
+        of: State[SignalType] | None = None,
+        name: str | None = None,
+        nominal_value: SignalType | None = None,
+        lower_bounds: SignalType | None = None,
+        upper_bounds: SignalType | None = None,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        function=None,
+        /,
+        *,
+        of: State[SignalType] | None = None,
+        name=None,
+        nominal_value=None,
+        lower_bounds=None,
+        upper_bounds=None,
+    ) -> None:
+        super().__init__(
+            function, name=name, nominal_value=nominal_value, lower_bounds=lower_bounds, upper_bounds=upper_bounds
+        )
 
         self._state = of
         self._state_attribute_name: str | None = None
 
+    def __call__(self: StateDerivative[Any], function: Callable[[Any], R]) -> StateDerivative[R]:
+        return cast("StateDerivative[R]", self._attach(function))
+
     @property
     def state(self) -> State[SignalType] | None:
         return self._state
-
-    @classmethod
-    def from_state(cls, state: State[SignalType]) -> Self:
-        """
-        Create a state derivative signal from a state signal.
-        """
-        return cls(of=state, name=f"d{state.name}")
 
     def clone(self) -> Self:
         clone = super().clone()

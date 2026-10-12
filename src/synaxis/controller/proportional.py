@@ -1,8 +1,7 @@
 import numbers
 from typing import Any
 
-from synaxis.core import Input, Output, Param
-from synaxis.systems import StaticSystem
+from synaxis.core import Input, Output, Param, System
 
 
 def _ndim(value: Any) -> int:
@@ -29,17 +28,14 @@ def _matvec(matrix: Any, vector: Any) -> Any:
     return (matrix @ vector[..., None])[..., 0]
 
 
-class ProportionalController(StaticSystem):
+class ProportionalController(System):
+    default_name = "p_controller"
+
     kp = Param()
 
     observation = Input()
     reference = Input()
 
-    u = Output()
-
-    def __init__(self, name=None) -> None:
-        name = name if name is not None else "p_controller"
-        super().__init__(name=name)
-
-    def compute_outputs(self):
+    @Output
+    def u(self):
         return _matvec(-self.kp, self.observation - self.reference)

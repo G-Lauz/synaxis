@@ -6,7 +6,16 @@ from .core.graph import (
     Node,
     SignalNode,
 )
-from .core.signals import Input, Output, Param, State, StateDerivative
+from .core.signals import (
+    Input,
+    Internal,
+    Noise,
+    Output,
+    Param,
+    State,
+    StateDerivative,
+    Time,
+)
 
 
 def to_dot(graph: ComputationGraph, explicit_connection: bool = True) -> str:
@@ -37,15 +46,23 @@ def to_dot(graph: ComputationGraph, explicit_connection: bool = True) -> str:
             color = "#ffffff"
             if node.stype is Input:
                 color = "#d9ead3"
-            elif node.stype is Output:
-                color = "#cfe2f3"
+            elif node.stype is Param:
+                color = "#e6e6e6"
             elif node.stype is State:
                 color = "#fff2cc"
+            elif node.stype is Time:
+                shape = "diamond"
+                color = "#fce5cd"
+            elif node.stype is Noise:
+                color = "#f4cccc"
+            elif node.stype is Output:
+                color = "#cfe2f3"
+            elif node.stype is Internal:
+                color = "#ead1dc"
+                style = style + ", dashed"
             elif node.stype is StateDerivative:
                 shape = "box"
                 style = style + ", rounded"
-            elif node.stype is Param:
-                color = "#e6e6e6"
 
         lines.append(
             f"  {node_id} [label={_quote(label)}, shape={shape}, style={_quote(style)}, fillcolor={_quote(color)}];"

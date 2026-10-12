@@ -5,8 +5,7 @@ from __future__ import annotations
 import numbers
 from typing import Any, Self
 
-from synaxis.core import Input, Output, Param, State, StateDerivative
-from synaxis.systems import DynamicSystem
+from synaxis.core import Input, Output, Param, State, System
 
 
 def _ndim(value: Any) -> int:
@@ -33,8 +32,10 @@ def _matvec(matrix: Any, vector: Any) -> Any:
     return (matrix @ vector[..., None])[..., 0]
 
 
-class LTISystem(DynamicSystem):
+class LTISystem(System):
     """Continuous linear time-invariant state-space system."""
+
+    default_name = "lti_system"
 
     A = Param()
     B = Param()
@@ -42,15 +43,11 @@ class LTISystem(DynamicSystem):
     D = Param()
 
     x = State()
-    dx = StateDerivative()
 
     u = Input()
-    y = Output()
 
     def __init__(self, name: str | None = None, *, direct_feedthrough: bool = True) -> None:
-        name = name if name is not None else "lti_system"
         super().__init__(name=name)
-
         self._direct_feedthrough = direct_feedthrough
 
     @property
@@ -61,9 +58,11 @@ class LTISystem(DynamicSystem):
     def clone(self) -> Self:
         return type(self)(name=self.name, direct_feedthrough=self.direct_feedthrough)
 
-    def compute_outputs(self):
+    @Output
+    def y(self):
         y = _matvec(self.C, self.x)
         return y + _matvec(self.D, self.u) if self.direct_feedthrough else y
 
-    def compute_dynamics(self):
+    @x.derivative
+    def dx(self):
         return _matvec(self.A, self.x) + _matvec(self.B, self.u)

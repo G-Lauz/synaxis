@@ -7,15 +7,15 @@ from synaxis.controller import ProportionalController
 from synaxis.core import Input, Noise, Output, System
 from synaxis.dynamics import LTISystem
 from synaxis.solvers import Euler
-from synaxis.systems import StaticSystem
 
 
-class NoisyPropController(StaticSystem):
+class NoisyPropController(System):
+    default_name = "noisy_p_controller"
     z = Noise()
     proportional = ProportionalController()
-    u = Output()
 
-    def compute_outputs(self):
+    @Output
+    def u(self):
         return self.proportional.u + self.z
 
 

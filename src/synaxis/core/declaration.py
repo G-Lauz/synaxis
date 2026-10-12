@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import abc
 import uuid
-from typing import Self, cast, overload
+from typing import Self, cast
 
 
 class Declaration(abc.ABC):
     """
-    A declaration is a statement that defines a component of a system, such as a signal, a subsystem, or an equation.
+    A declaration is a statement that defines a component of a system, such as a signal, a subsystem.
 
     Example:
     ```Python
@@ -33,6 +33,7 @@ class Declaration(abc.ABC):
 
     def __init__(self, *, name: str | None = None) -> None:
         self._declared_name = name
+        self._attribute_name = None
 
     @property
     def id(self) -> uuid.UUID:
@@ -62,12 +63,6 @@ class Declaration(abc.ABC):
 
         # bind appropriate name to the declaration, either the user-defined name or the attribute name.
         self.bind_name(name)
-
-    @overload
-    def __get__(self, instance: None, owner: type | None = None) -> Self: ...
-
-    @overload
-    def __get__(self, instance: object, owner: type | None = None) -> Self: ...
 
     def __get__(self, instance: object | None, owner: type | None = None) -> Self:
         # self:     is the descriptor object

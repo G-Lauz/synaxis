@@ -1,32 +1,41 @@
 from __future__ import annotations
 
-from synaxis.core import Noise, Output, Param
-from synaxis.systems import StaticSystem
+import math
+
+from synaxis.core import Noise, Output, Param, System, Time
 
 
-class Constant(StaticSystem):
-    y = Output()
+class Constant(System):
+    default_name = "constant"
+
     value = Param()
 
-    def __init__(self, name: str | None = None):
-        name = name if name is not None else "constant"
-        super().__init__(name=name)
-
-    def compute_outputs(self):
+    @Output
+    def y(self):
         return self.value
 
 
-class WhiteNoise(StaticSystem):
-    y = Output()
+class Sine(System):
+    default_name = "sine"
+
+    time = Time()
+    amplitude = Param()
+    frequency = Param()
+
+    @Output
+    def y(self):
+        # TODO: take into account the backend, e.g. numpy, jax, etc.
+        return self.amplitude * math.sin(2 * math.pi * self.frequency * self.time)
+
+
+class WhiteNoise(System):
+    default_name = "white_noise"
 
     z = Noise()
 
     mean = Param()
     stddev = Param()
 
-    def __init__(self, name: str | None = None):
-        name = name if name is not None else "white_noise"
-        super().__init__(name=name)
-
-    def compute_outputs(self):
+    @Output
+    def y(self):
         return self.mean + self.stddev * self.z

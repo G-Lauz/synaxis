@@ -10,10 +10,10 @@ from synaxis.solvers import Euler
 
 
 class ClosedLoopModel(System):
+    default_name = "closed_loop_model"
     plant = LTISystem(name="plant", direct_feedthrough=False)
 
     def __init__(self, name=None) -> None:
-        name = name if name is not None else "closed_loop_model"
         super().__init__(name=name)
 
         self.reference = Input()
