@@ -255,14 +255,14 @@ def _infer_state_pairs(
 
             derivative_by_state[state.id] = derivative
 
-            if len(derivative_by_state) != len(states):
-                raise ValueError(
-                    f"expected {len(states)} state derivatives, got {len(derivative_by_state)}. "
-                    "Check that the system has the same number of state and state derivative signals."
-                )
+        if len(derivative_by_state) != len(states):
+            raise ValueError(
+                f"expected {len(states)} state derivatives, got {len(derivative_by_state)}. "
+                "Check that the system has the same number of state and state derivative signals."
+            )
 
-            pairs = tuple((state.id, derivative_by_state[state.id].id) for state in states)
-            state_pairs.extend(pairs)
+        pairs = tuple((state.id, derivative_by_state[state.id].id) for state in states)
+        state_pairs.extend(pairs)
 
     return tuple(state_pairs)
 
