@@ -12,8 +12,6 @@ def _ndim(value: Any) -> int:
     if isinstance(value, numbers.Number):
         return 0
 
-    print(type(value), type(value.get_value()), value.get_value())
-
     raise TypeError("value must be a numeric scalar or an array")
 
 
