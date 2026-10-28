@@ -27,3 +27,7 @@ We aim for minimal package specific code from the user perspective. Hence, a voc
 - [ ] Events: guards + reset; expose zero-crossing functions and reset maps; with `@x.update(on=crossing(...))` ?
 - [ ] `scipy.integrate.solve_ivp` adapter
 - [ ] `diffrax` adapter
+- [ ] Noise subclasses
+- [ ] Per-step PRNG key source that equation can split and consume lazily instead of per-step
+- [ ] CompileSystem immutability while keeping user interface features
+- [ ] Euler-Maruyama solver

@@ -42,10 +42,10 @@ def read_signal(signal: Signal[Any]) -> Any:
                 f"signal {signal.name} was not available in  the compiled execution order"
             ) from exception
 
-        if trace_state is not None:
-            return _sample(
-                signal
-            )  # sample the signal value from computed signals (cached) or default value (nominal or zero)
+    if trace_state is not None:
+        return _sample(
+            signal
+        )  # sample the signal value from computed signals (cached) or default value (nominal or zero)
 
     return signal.get_value()  # the default value (nominal or zero)
 
